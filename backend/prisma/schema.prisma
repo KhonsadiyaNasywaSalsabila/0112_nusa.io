@@ -1,0 +1,201 @@
+// File: schema.prisma
+// Generator dan konfigurasi koneksi
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------
+// ENUM DEFINITIONS (Sesuai dengan nilai ENUM di Excel)
+// ---------------------------------------------------------
+
+enum AccountStatus {
+  ACTIVE
+  SUSPEND
+  BANNED
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  MODERATOR
+}
+
+enum ThemeTag {
+  VINTAGE
+  ALAM
+  KULINER
+  SOSIAL
+  PERSONAL
+  MINDFUL
+}
+
+enum JournalStatus {
+  DRAFT
+  PUBLISHED
+  PRIVATE_ARCHIVE
+  BLOCKED
+}
+
+enum MediaType {
+  IMAGE
+  AUDIO
+}
+
+enum BookmarkStatus {
+  PLANNED
+  VISITED
+}
+
+// ---------------------------------------------------------
+// MODEL / TABLE DEFINITIONS (Dari 7 Sheet Excel)
+// ---------------------------------------------------------
+
+model User {
+  id              String        @id @default(uuid()) @db.VarChar(36)
+  username        String        @unique @db.VarChar(50)
+  email           String        @unique @db.VarChar(100)
+  passwordHash    String        @map("password_hash") @db.VarChar(255)
+  accountStatus   AccountStatus @default(ACTIVE) @map("account_status")
+  bio             String?       @db.VarChar(160)
+  // [FIX Poin 5] Foto profil untuk avatar di halaman Scrapbook/Profil (AD-06)
+  profilePhotoUrl String?       @map("profile_photo_url") @db.VarChar(500)
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  // Relasi (Satu User bisa punya banyak Jurnal, Bookmark, dan Stempel)
+  journals        Journal[]
+  bookmarks       Bookmark[]
+  stamps          UserStamp[]
+
+  @@map("users") // Memaksa nama tabel fisik di MySQL menjadi 'users'
+}
+
+model Admin {
+  id           String    @id @default(uuid()) @db.VarChar(36)
+  username     String    @unique @db.VarChar(50)
+  email        String    @unique @db.VarChar(100)
+  passwordHash String    @map("password_hash") @db.VarChar(255)
+  role         AdminRole
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@map("admins")
+}
+
+model Location {
+  id             String      @id @default(uuid()) @db.VarChar(36)
+  latitude       Decimal     @db.Decimal(10, 8)
+  longitude      Decimal     @db.Decimal(11, 8)
+  name           String      @db.VarChar(100)
+  geofenceRadius Int         @default(50) @map("geofence_radius")
+  journalCount   Int         @default(0) @map("journal_count")
+  coverPhotoUrl  String?     @map("cover_photo_url") @db.VarChar(500)
+  description    String?     @db.Text
+  isActive       Boolean     @default(true) @map("is_active")
+  createdAt      DateTime    @default(now()) @map("created_at")
+
+  // Relasi
+  journals       Journal[]
+  bookmarks      Bookmark[]
+  stamps         UserStamp[]
+
+  @@map("locations")
+}
+
+model Journal {
+  id                String        @id @default(uuid()) @db.VarChar(36)
+  userId            String        @map("user_id") @db.VarChar(36)
+  // location_id TETAP NOT NULL (Keputusan Poin 4 - Opsi B).
+  // Resolusi koordinat -> location_id WAJIB dilakukan di sisi Flutter
+  // (pencocokan Haversine lokal terhadap cache SQLite daftar lokasi)
+  // SEBELUM baris ini ditulis ke SQLite, bukan ditunda ke saat sync.
+  // Jika tidak ada lokasi yang cocok dalam radius, penulisan jurnal
+  // ditolak sejak awal (konsisten dengan prinsip geofencing).
+  locationId        String        @map("location_id") @db.VarChar(36)
+  rootJournalId     String?       @map("root_journal_id") @db.VarChar(36)
+  content           String        @db.Text
+  themeTag          ThemeTag      @map("theme_tag")
+  latitudeCaptured  Decimal       @map("latitude_captured") @db.Decimal(10, 8)
+  longitudeCaptured Decimal       @map("longitude_captured") @db.Decimal(11, 8)
+  // [FIX Poin 1] Default WAJIB DRAFT, bukan PUBLISHED.
+  // Status PUBLISHED / PRIVATE_ARCHIVE hanya boleh diset oleh backend
+  // SETELAH validasi geofence (Haversine) dijalankan -- baik otomatis
+  // saat Auto-Sync, atau saat Traveler menekan tombol "Publish" manual
+  // pada draft yang sudah tersinkron (lihat resolusi Inkonsistensi #3).
+  status            JournalStatus @default(DRAFT)
+  // [FIX Poin 6] Counter laporan pelanggaran untuk kebutuhan moderasi MVP
+  // (lihat AD-08). Trade-off: tidak menyimpan alasan/identitas pelapor --
+  // cukup untuk MVP, bisa dipecah jadi tabel Report terpisah pasca-MVP
+  // jika moderasi butuh detail per-laporan.
+  reportCount       Int           @default(0) @map("report_count")
+  updatedAt         DateTime?     @updatedAt @map("updated_at")
+  createdAt         DateTime      @default(now()) @map("created_at")
+
+  // Definisi Relasi Foreign Key
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  location          Location      @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  // Relasi Self-Referential untuk Mode Sisipan (Root Anchoring)
+  parentJournal     Journal?      @relation("JournalReplies", fields: [rootJournalId], references: [id], onDelete: Restrict)
+  childJournals     Journal[]     @relation("JournalReplies")
+
+  // Relasi ke tabel Media dan Bookmark
+  media             JournalMedia[]
+  bookmarks         Bookmark[]
+
+  @@map("journals")
+}
+
+model JournalMedia {
+  id         String    @id @default(uuid()) @db.VarChar(36)
+  journalId  String    @map("journal_id") @db.VarChar(36)
+  mediaUrl   String    @map("media_url") @db.VarChar(255)
+  mediaType  MediaType @map("media_type")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  journal    Journal   @relation(fields: [journalId], references: [id], onDelete: Cascade)
+
+  // [Catatan Poin 7] Limit maksimal 3 media per jurnal TIDAK dikunci di
+  // level database -- trigger SQL dianggap berlebihan untuk kasus ini.
+  // Sudah ditangani di app-level: src/routes/journalRoutes.js via
+  // middleware upload.array('photos', 3).
+
+  @@map("journal_media")
+}
+
+model Bookmark {
+  id         String         @id @default(uuid()) @db.VarChar(36)
+  locationId String         @map("location_id") @db.VarChar(36)
+  userId     String         @map("user_id") @db.VarChar(36)
+  journalId  String         @map("journal_id") @db.VarChar(36)
+  status     BookmarkStatus @default(PLANNED)
+  createdAt  DateTime       @default(now()) @map("created_at")
+
+  location   Location       @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  journal    Journal        @relation(fields: [journalId], references: [id], onDelete: Cascade)
+
+  // [FIX Poin 3] Mencegah duplikasi bookmark akibat race condition
+  // (mis. double-tap tombol "Simpan Jejak"), sebagai lapis tambahan
+  // dari pengecekan findFirst() di bookmarkController.js
+  @@unique([userId, journalId])
+  @@map("bookmarks")
+}
+
+model UserStamp {
+  id         String   @id @default(uuid()) @db.VarChar(36)
+  userId     String   @map("user_id") @db.VarChar(36)
+  locationId String   @map("location_id") @db.VarChar(36)
+  earnedAt   DateTime @default(now()) @map("earned_at")
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  // [FIX Poin 2] Mencegah satu pengguna mendapat stempel duplikat untuk
+  // lokasi yang sama akibat race condition (mis. dua request check-in
+  // nyaris bersamaan masuk hampir bersamaan).
+  @@unique([userId, locationId])
+  @@map("user_stamps")
+}
