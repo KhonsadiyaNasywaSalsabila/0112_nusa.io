@@ -14,11 +14,34 @@ class BookmarkLoading extends BookmarkState {}
 class BookmarkLoaded extends BookmarkState {
   final List<BookmarkModel> planned;
   final List<BookmarkModel> visited;
+  final bool hasMore;
+  final int page;
+  final String? searchQuery;
 
-  const BookmarkLoaded(this.planned, this.visited);
+  const BookmarkLoaded(
+    this.planned, 
+    this.visited, 
+    {this.hasMore = false, this.page = 1, this.searchQuery}
+  );
+
+  BookmarkLoaded copyWith({
+    List<BookmarkModel>? planned,
+    List<BookmarkModel>? visited,
+    bool? hasMore,
+    int? page,
+    String? searchQuery,
+  }) {
+    return BookmarkLoaded(
+      planned ?? this.planned,
+      visited ?? this.visited,
+      hasMore: hasMore ?? this.hasMore,
+      page: page ?? this.page,
+      searchQuery: searchQuery ?? this.searchQuery,
+    );
+  }
 
   @override
-  List<Object> get props => [planned, visited];
+  List<Object> get props => [planned, visited, hasMore, page, searchQuery ?? ''];
 }
 
 class BookmarkError extends BookmarkState {

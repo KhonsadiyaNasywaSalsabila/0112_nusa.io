@@ -33,7 +33,7 @@ const getMapData = async (req, res) => {
     // 3. Tarik data bookmark JIKA yang akses adalah User Login
     let userBookmarks = [];
     if (userId) {
-      userBookmarks = await prisma.bookmark.findMany({
+      userBookmarks = await prisma.userBookmarkLocation.findMany({
         where: { userId: userId }
       });
     }

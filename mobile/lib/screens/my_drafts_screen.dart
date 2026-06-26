@@ -141,11 +141,9 @@ class MyDraftsView extends StatelessWidget {
                                 // draft as Map is expected by zen-editor, we need to pass toJson or update zen_editor
                                 // I will use toJson for now since zen editor expects Map
                                 if (context.mounted) {
-                                  final result = await context.push('/zen-editor', extra: draft.toJson());
-                                  if (result == true) {
-                                    if (context.mounted) {
-                                      context.read<DraftBloc>().add(DraftsRequested());
-                                    }
+                                  await context.push('/zen-editor', extra: draft.toJson());
+                                  if (context.mounted) {
+                                    context.read<DraftBloc>().add(DraftsRequested());
                                   }
                                 }
                               }, 

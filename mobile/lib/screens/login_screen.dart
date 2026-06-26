@@ -82,6 +82,10 @@ class _LoginScreenState extends State<LoginScreen> {
               backgroundColor: Colors.redAccent,
             ),
           );
+        } else if (state is AuthGuestMode) {
+          context.go('/map');
+        } else if (state is AuthAuthenticated) {
+          context.go('/map');
         }
       },
       child: Scaffold(

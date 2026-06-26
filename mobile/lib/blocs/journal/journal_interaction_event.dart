@@ -8,14 +8,6 @@ abstract class JournalInteractionEvent extends Equatable {
 }
 
 
-class BookmarkJournalRequested extends JournalInteractionEvent {
-  final String journalId;
-  const BookmarkJournalRequested(this.journalId);
-
-  @override
-  List<Object> get props => [journalId];
-}
-
 class ArchiveJournalRequested extends JournalInteractionEvent {
   final String journalId;
   const ArchiveJournalRequested(this.journalId);

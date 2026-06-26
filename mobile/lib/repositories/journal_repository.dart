@@ -35,7 +35,4 @@ class JournalRepository {
     );
   }
 
-  Future<Response> addBookmark(String id) async {
-    return await _dio.post('/bookmarks', data: {'journalId': id});
-  }
 }

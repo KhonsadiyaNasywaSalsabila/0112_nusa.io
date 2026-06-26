@@ -9,7 +9,9 @@ import '../screens/zen_editor_screen.dart';
 import '../screens/my_drafts_screen.dart';
 import '../screens/place_hub_screen.dart';
 import '../screens/bookmarks_screen.dart';
+import '../screens/saved_journals_screen.dart';
 import '../screens/profile_screen.dart';
+import '../screens/journal_detail_screen.dart';
 import '../blocs/auth/auth_bloc.dart';
 import '../blocs/auth/auth_state.dart';
 import '../main.dart'; // Akses authBloc
@@ -20,9 +22,12 @@ final GoRouter appRouter = GoRouter(
   refreshListenable: GoRouterRefreshStream(authBloc.stream),
   redirect: (context, state) {
     final authState = authBloc.state;
-    final isGoingToLogin = state.matchedLocation == '/login' || state.matchedLocation == '/register';
-    final isGoingToSplash = state.matchedLocation == '/';
-    final isGoingToMap = state.matchedLocation == '/map';
+    final isGoingToLogin = state.uri.path == '/login' || state.uri.path == '/register';
+    final isGoingToSplash = state.uri.path == '/';
+    final isGoingToMap = state.uri.path == '/map';
+    final isGoingToExplorePaths = state.uri.path == '/map' || 
+                                  state.uri.path.startsWith('/place-hub') || 
+                                  state.uri.path.startsWith('/journal-detail');
 
     // Jika masih mengecek (Initial / Loading di Splash Screen)
     if (authState is AuthInitial || isGoingToSplash) {
@@ -38,17 +43,15 @@ final GoRouter appRouter = GoRouter(
     // --- SATPAM KETAT (Profile, Drafts, Bookmarks, dll) ---
     // Berlaku bagi Unauthenticated atau GuestMode
     if (authState is AuthUnauthenticated || authState is AuthGuestMode) {
-      // Jika Guest Mode sedang di halaman Login, langsung pindah ke Peta
-      if (authState is AuthGuestMode && isGoingToLogin) {
-        return '/map';
-      }
+      // Izinkan Guest ke halaman login untuk daftar akun
+      if (authState is AuthGuestMode && isGoingToLogin) return null;
       
-      // Hanya izinkan Map untuk Guest
-      if (authState is AuthGuestMode && isGoingToMap) return null;
+      // Izinkan akses ke fitur eksplorasi (Map, PlaceHub, JournalDetail)
+      if (authState is AuthGuestMode && isGoingToExplorePaths) return null;
       
-      // Jika mencoba akses selain Map/Login, lempar ke login
+      // Jika mencoba akses fitur terbatas, kembalikan ke peta (untuk guest) atau login (unauth)
       if (!isGoingToLogin) {
-        return '/login';
+        return authState is AuthGuestMode ? '/map' : '/login';
       }
     }
 
@@ -81,14 +84,21 @@ final GoRouter appRouter = GoRouter(
     ),
     GoRoute(
       path: '/map',
-      pageBuilder: (context, state) => CustomTransitionPage(
-        key: state.pageKey,
-        child: const MapExploreScreen(),
-        transitionDuration: const Duration(milliseconds: 1200),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(opacity: animation, child: child);
-        },
-      ),
+      pageBuilder: (context, state) {
+        final extra = state.extra as Map<String, dynamic>?;
+        return CustomTransitionPage(
+          key: state.pageKey,
+          child: MapExploreScreen(
+            targetLat: extra?['targetLat'],
+            targetLng: extra?['targetLng'],
+            targetLocationId: extra?['targetLocationId'],
+          ),
+          transitionDuration: const Duration(milliseconds: 1200),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            return FadeTransition(opacity: animation, child: child);
+          },
+        );
+      },
     ),
     GoRoute(
       path: '/zen-editor',
@@ -113,6 +123,17 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/bookmarks',
       builder: (context, state) => const BookmarksScreen(),
+    ),
+    GoRoute(
+      path: '/saved-journals',
+      builder: (context, state) => const SavedJournalsScreen(),
+    ),
+    GoRoute(
+      path: '/journal-detail',
+      builder: (context, state) {
+        final extra = state.extra as Map<String, dynamic>;
+        return JournalDetailScreen(extraData: extra);
+      },
     ),
     GoRoute(
       path: '/profile',

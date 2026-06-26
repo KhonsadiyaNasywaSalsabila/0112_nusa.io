@@ -37,6 +37,19 @@ const createJournal = async (req, res) => {
       return res.status(403).json({ success: false, message: "Titik lokasi ini sudah ditutup/diarsipkan. Kamu tidak bisa menulis jurnal baru di sini." });
     }
 
+    if (rootJournalId) {
+      const rootJournal = await prisma.journal.findUnique({ where: { id: rootJournalId } });
+      if (!rootJournal) {
+        return res.status(404).json({ success: false, message: "Jurnal utama tidak ditemukan." });
+      }
+      if (rootJournal.status === 'PRIVATE_ARCHIVE') {
+        return res.status(400).json({ success: false, message: "Jurnal utama telah diarsipkan, kamu tidak dapat membalasnya." });
+      }
+      if (rootJournal.content === '[Jurnal ini telah ditarik oleh penulis]') {
+        return res.status(400).json({ success: false, message: "Jurnal utama telah ditarik oleh penulisnya, kamu tidak dapat membalasnya." });
+      }
+    }
+
     const newJournal = await prisma.journal.create({
       data: {
         userId, 
@@ -76,7 +89,7 @@ const getJournals = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const { locationId, themeTag, search } = req.query;
+    const { locationId, themeTag, search, isRoot, rootJournalId } = req.query;
 
     const whereClause = {
       status: 'PUBLISHED' 
@@ -84,6 +97,13 @@ const getJournals = async (req, res) => {
 
     if (locationId) whereClause.locationId = locationId;
     if (themeTag) whereClause.themeTag = themeTag;
+    
+    // Filter khusus untuk Root/Child
+    if (isRoot === 'true') {
+      whereClause.rootJournalId = null;
+    } else if (rootJournalId) {
+      whereClause.rootJournalId = rootJournalId;
+    }
     
     // Fitur Search (Mencari berdasarkan kata kunci di konten)
     if (search) {
@@ -98,7 +118,8 @@ const getJournals = async (req, res) => {
       include: {
         user: { select: { username: true } }, 
         location: { select: { name: true } },
-        media: true 
+        media: true,
+        _count: { select: { childJournals: true } }
       }
     });
 
@@ -287,6 +308,19 @@ const publishJournal = async (req, res) => {
     if (!journal) return res.status(404).json({ success: false, message: "Jurnal tidak ditemukan." });
     if (journal.userId !== userId) return res.status(403).json({ success: false, message: "Akses ditolak." });
     if (journal.status === 'PUBLISHED') return res.status(400).json({ success: false, message: "Jurnal ini sudah tayang!" });
+
+    if (journal.rootJournalId) {
+      const rootJournal = await prisma.journal.findUnique({ where: { id: journal.rootJournalId } });
+      if (!rootJournal) {
+        return res.status(404).json({ success: false, message: "Jurnal utama tidak ditemukan." });
+      }
+      if (rootJournal.status === 'PRIVATE_ARCHIVE') {
+        return res.status(400).json({ success: false, message: "Jurnal utama telah diarsipkan, kamu tidak dapat mempublikasikan balasan ini." });
+      }
+      if (rootJournal.content === '[Jurnal ini telah ditarik oleh penulis]') {
+        return res.status(400).json({ success: false, message: "Jurnal utama telah ditarik oleh penulisnya, kamu tidak dapat mempublikasikan balasan ini." });
+      }
+    }
 
     const validation = checkGeofence(
       parseFloat(journal.latitudeCaptured),

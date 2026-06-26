@@ -10,8 +10,13 @@ import '../blocs/place/place_hub_state.dart';
 import '../blocs/journal/journal_interaction_bloc.dart';
 import '../blocs/journal/journal_interaction_event.dart';
 import '../blocs/journal/journal_interaction_state.dart';
+import '../blocs/bookmark/bookmark_interaction_bloc.dart';
 import '../../services/api_client.dart';
 import '../../repositories/journal_repository.dart';
+import '../utils/guest_dialog.dart';
+import '../utils/location_verifier.dart';
+import '../models/location_model.dart';
+import '../models/journal_model.dart';
 
 class GlassContainer extends StatelessWidget {
   final Widget child;
@@ -56,114 +61,90 @@ class GlassContainer extends StatelessWidget {
   }
 }
 
-class _JournalImageCarousel extends StatefulWidget {
+class _JournalImageGrid extends StatelessWidget {
   final List<String> mediaUrls;
   final String placeholderPath;
 
-  const _JournalImageCarousel({Key? key, required this.mediaUrls, required this.placeholderPath}) : super(key: key);
+  const _JournalImageGrid({Key? key, required this.mediaUrls, required this.placeholderPath}) : super(key: key);
 
-  @override
-  State<_JournalImageCarousel> createState() => _JournalImageCarouselState();
-}
-
-class _JournalImageCarouselState extends State<_JournalImageCarousel> {
-  int _currentIndex = 0;
-
-  void _onTapNext() {
-    if (_currentIndex < widget.mediaUrls.length - 1) {
-      setState(() {
-        _currentIndex++;
-      });
-    }
-  }
-
-  void _onTapPrev() {
-    if (_currentIndex > 0) {
-      setState(() {
-        _currentIndex--;
-      });
-    }
+  Widget _buildImage(String url) {
+    final fullUrl = url.startsWith('http') ? url : 'http://10.0.2.2:3000${url.startsWith('/') ? '' : '/'}$url';
+    return Image.network(
+      fullUrl,
+      fit: BoxFit.cover,
+      width: double.infinity,
+      height: double.infinity,
+      errorBuilder: (ctx, err, st) => Image.asset(placeholderPath, fit: BoxFit.cover, width: double.infinity, height: double.infinity),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (widget.mediaUrls.isEmpty) {
-      return Image.asset(
-        widget.placeholderPath,
-        fit: BoxFit.cover,
-        errorBuilder: (ctx, err, st) => Container(color: Colors.grey[800], child: const Center(child: Icon(Icons.image, color: Colors.white54, size: 48))),
+    if (mediaUrls.isEmpty) return const SizedBox.shrink();
+
+    if (mediaUrls.length == 1) {
+      return _buildImage(mediaUrls[0]);
+    }
+
+    if (mediaUrls.length == 2) {
+      return Row(
+        children: [
+          Expanded(child: _buildImage(mediaUrls[0])),
+          const SizedBox(width: 4),
+          Expanded(child: _buildImage(mediaUrls[1])),
+        ],
       );
     }
 
-    final mediaUrl = widget.mediaUrls[_currentIndex];
-    final fullUrl = mediaUrl.startsWith('http') ? mediaUrl : 'http://10.0.2.2:3000${mediaUrl.startsWith('/') ? '' : '/'}$mediaUrl';
-
-    return Stack(
-      children: [
-        // Image
-        Positioned.fill(
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 200),
-            child: Image.network(
-              fullUrl,
-              key: ValueKey<String>(fullUrl),
-              fit: BoxFit.cover,
-              width: double.infinity,
-              height: double.infinity,
-              errorBuilder: (ctx, err, st) => Image.asset(widget.placeholderPath, fit: BoxFit.cover, width: double.infinity, height: double.infinity),
-            ),
-          ),
-        ),
-        
-        // Tap Zones
-        if (widget.mediaUrls.length > 1) ...[
-          Positioned(
-            left: 0,
-            top: 0,
-            bottom: 0,
-            width: MediaQuery.of(context).size.width * 0.35,
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onTap: _onTapPrev,
-            ),
-          ),
-          Positioned(
-            right: 0,
-            top: 0,
-            bottom: 0,
-            width: MediaQuery.of(context).size.width * 0.35,
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onTap: _onTapNext,
+    if (mediaUrls.length == 3) {
+      return Row(
+        children: [
+          Expanded(flex: 2, child: _buildImage(mediaUrls[0])),
+          const SizedBox(width: 4),
+          Expanded(
+            flex: 1,
+            child: Column(
+              children: [
+                Expanded(child: _buildImage(mediaUrls[1])),
+                const SizedBox(height: 4),
+                Expanded(child: _buildImage(mediaUrls[2])),
+              ],
             ),
           ),
         ],
+      );
+    }
 
-        // Dots Indicator
-        if (widget.mediaUrls.length > 1)
-          Positioned(
-            bottom: 16,
-            left: 0,
-            right: 0,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(widget.mediaUrls.length, (index) {
-                return AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  width: _currentIndex == index ? 10 : 6,
-                  height: _currentIndex == index ? 10 : 6,
-                  decoration: BoxDecoration(
-                    color: _currentIndex == index ? Colors.white : Colors.white.withOpacity(0.5),
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 4, offset: const Offset(0, 1))
-                    ],
-                  ),
-                );
-              }),
-            ),
+    // 4 or more
+    return Row(
+      children: [
+        Expanded(flex: 2, child: _buildImage(mediaUrls[0])),
+        const SizedBox(width: 4),
+        Expanded(
+          flex: 1,
+          child: Column(
+            children: [
+              Expanded(child: _buildImage(mediaUrls[1])),
+              const SizedBox(height: 4),
+              Expanded(child: _buildImage(mediaUrls[2])),
+              const SizedBox(height: 4),
+              Expanded(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _buildImage(mediaUrls[3]),
+                    if (mediaUrls.length > 4)
+                      Container(
+                        color: Colors.black54,
+                        alignment: Alignment.center,
+                        child: Text('+${mediaUrls.length - 4}', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                      ),
+                  ],
+                ),
+              ),
+            ],
           ),
+        ),
       ],
     );
   }
@@ -194,7 +175,8 @@ class PlaceHubView extends StatefulWidget {
 }
 
 class _PlaceHubViewState extends State<PlaceHubView> {
-  final PageController _pageController = PageController(viewportFraction: 0.85);
+  bool? _isLocationBookmarked;
+  final Map<String, bool> _localJournalBookmarks = {};
 
   Color _getThemeColor(String theme) {
     switch (theme.toUpperCase()) {
@@ -216,77 +198,102 @@ class _PlaceHubViewState extends State<PlaceHubView> {
     return 'assets/images/journal_placeholder_$placeholderNum.jpg';
   }
 
-  void _handleRestrictedAction(BuildContext context, String actionName, String route) {
-    final authState = context.read<AuthBloc>().state;
-    if (authState is AuthAuthenticated) {
-      context.push(route);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Anda harus login untuk $actionName.'),
-          action: SnackBarAction(
-            label: 'Login',
-            onPressed: () => context.push('/login'),
-          ),
-        ),
-      );
-    }
+  void _showReplies(BuildContext context, JournalModel rootJournal, Map<String, List<JournalModel>> repliesMap, LocationModel location, String currentTheme) {
+    // Collect replies
+    final List<JournalModel> replies = repliesMap[rootJournal.id] ?? [];
+    
+    // Navigate to JournalDetailScreen, passing the currentTheme too
+    context.push('/journal-detail', extra: {
+      'rootJournal': rootJournal,
+      'replies': replies,
+      'location': location,
+      'currentTheme': currentTheme,
+    });
   }
 
-  void _showReplies(BuildContext context, String rootJournalId, Map<String, List<dynamic>> repliesMap) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return Container(
-          height: MediaQuery.of(context).size.height * 0.8,
-          decoration: const BoxDecoration(
-            color: Color(0xFF1E1E1E),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: Column(
-            children: [
-              const SizedBox(height: 16),
-              Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white30, borderRadius: BorderRadius.circular(2))),
-              const Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Text("Balasan", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-              ),
-              const Expanded(
-                child: Center(child: Text("Fitur balasan akan ditampilkan di sini", style: TextStyle(color: Colors.white54))),
-              )
-            ],
-          ),
-        );
-      }
-    );
+  void _handleRestrictedAction(BuildContext context, String action, String redirectRoute) {
+    GuestDialog.show(context, 'Koleksi Inspirasi');
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       extendBodyBehindAppBar: true,
-      body: BlocListener<JournalInteractionBloc, JournalInteractionState>(
-        listener: (context, interactionState) {
-          if (interactionState is JournalBookmarkSuccess) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(interactionState.message), backgroundColor: Colors.green));
-          } else if (interactionState is JournalArchiveSuccess) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(interactionState.message), backgroundColor: Colors.orange));
-            final currentState = context.read<PlaceHubBloc>().state;
-            if (currentState is PlaceHubLoaded) {
-              context.read<PlaceHubBloc>().add(HubOpened(currentState.location.id, theme: currentState.currentTheme));
-            }
-          } else if (interactionState is JournalDeleteSuccess) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(interactionState.message), backgroundColor: Colors.redAccent));
-            final currentState = context.read<PlaceHubBloc>().state;
-            if (currentState is PlaceHubLoaded) {
-              context.read<PlaceHubBloc>().add(HubOpened(currentState.location.id, theme: currentState.currentTheme));
-            }
-          } else if (interactionState is JournalInteractionFailure) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(interactionState.message), backgroundColor: Colors.red));
+      floatingActionButton: BlocBuilder<PlaceHubBloc, PlaceHubState>(
+        builder: (context, state) {
+          if (state is PlaceHubLoaded) {
+            return GestureDetector(
+              onTap: () async {
+                final authState = context.read<AuthBloc>().state;
+                final currentUserId = authState is AuthAuthenticated ? authState.userId : null;
+                if (currentUserId == null) {
+                  GuestDialog.show(context, 'Tulis Jurnal');
+                  return;
+                }
+                final position = await LocationVerifier.verifyAndGetPosition(context, state.location);
+                if (position == null) return; // Dibatalkan atau error atau di luar geofence
+                
+                final result = await context.push('/zen-editor', extra: {
+                  'locationId': state.location.id,
+                  'latitudeCaptured': position.latitude,
+                  'longitudeCaptured': position.longitude,
+                  'isMocked': position.isMocked ? 1 : 0,
+                });
+
+                if (result == true) {
+                  // ignore: use_build_context_synchronously
+                  context.read<PlaceHubBloc>().add(HubOpened(state.location.id, theme: state.currentTheme));
+                }
+              },
+              child: GlassContainer(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                borderRadius: 30,
+                color: Colors.white.withOpacity(0.15), // Efek frosted glass
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Icon(Icons.edit, color: Colors.white, size: 20),
+                    SizedBox(width: 8),
+                    Text('Tulis Jurnal', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                  ],
+                ),
+              ),
+            );
           }
+          return const SizedBox.shrink();
         },
+      ),
+      body: MultiBlocListener(
+        listeners: [
+          BlocListener<JournalInteractionBloc, JournalInteractionState>(
+            listener: (context, interactionState) {
+              if (interactionState is JournalArchiveSuccess) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(interactionState.message), backgroundColor: Colors.orange));
+                final currentState = context.read<PlaceHubBloc>().state;
+                if (currentState is PlaceHubLoaded) {
+                  context.read<PlaceHubBloc>().add(HubOpened(currentState.location.id, theme: currentState.currentTheme));
+                }
+              } else if (interactionState is JournalDeleteSuccess) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(interactionState.message), backgroundColor: Colors.redAccent));
+                final currentState = context.read<PlaceHubBloc>().state;
+                if (currentState is PlaceHubLoaded) {
+                  context.read<PlaceHubBloc>().add(HubOpened(currentState.location.id, theme: currentState.currentTheme));
+                }
+              } else if (interactionState is JournalInteractionFailure) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(interactionState.message), backgroundColor: Colors.red));
+              }
+            },
+          ),
+          BlocListener<BookmarkInteractionBloc, BookmarkState>(
+            listener: (context, interactionState) {
+              if (interactionState is BookmarkSuccess) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(interactionState.message), backgroundColor: Colors.green));
+              } else if (interactionState is BookmarkFailure) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(interactionState.error), backgroundColor: Colors.red));
+              }
+            },
+          ),
+        ],
         child: BlocBuilder<PlaceHubBloc, PlaceHubState>(
           builder: (context, state) {
             String? coverUrl;
@@ -296,8 +303,16 @@ class _PlaceHubViewState extends State<PlaceHubView> {
 
             return Stack(
               children: [
-                // 1. Full Screen Background Image (Dynamic with Local Fallback)
+                // Background Solid Canvas
                 Positioned.fill(
+                  child: Container(color: const Color(0xFF1F2B22)), // Elegant dark forest green
+                ),
+                // 1. Hero Header Image (Only top 45%)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: MediaQuery.of(context).size.height * 0.45,
                   child: (coverUrl != null && coverUrl.isNotEmpty)
                       ? Image.network(
                           coverUrl.startsWith('http') ? coverUrl : 'http://10.0.2.2:3000${coverUrl.startsWith('/') ? '' : '/'}$coverUrl',
@@ -311,22 +326,27 @@ class _PlaceHubViewState extends State<PlaceHubView> {
                         ),
                 ),
             
-            // 2. Subtle Dark Gradient Overlay (Meningkatkan keterbacaan teks)
-            Positioned.fill(
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.black.withOpacity(0.4),
-                      Colors.transparent,
-                      Colors.black.withOpacity(0.7),
-                    ],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
+                // 2. Gradient Fade to Solid Background
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: MediaQuery.of(context).size.height * 0.46, // slightly overlap
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          const Color(0xFF1F2B22).withOpacity(0.5), // Top slightly darkened
+                          Colors.transparent, // Middle clear
+                          const Color(0xFF1F2B22), // Bottom solid to blend seamlessly
+                        ],
+                        stops: const [0.0, 0.4, 1.0],
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
 
             // 3. Main Content
             SafeArea(
@@ -375,6 +395,40 @@ class _PlaceHubViewState extends State<PlaceHubView> {
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
+                              const SizedBox(width: 12),
+                              GestureDetector(
+                                onTap: () {
+                                  if (location.isVisited) {
+                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Anda sudah pernah mengunjungi lokasi ini')));
+                                    return;
+                                  }
+
+                                  final authState = context.read<AuthBloc>().state;
+                                  final currentUserId = authState is AuthAuthenticated ? authState.userId : null;
+                                  if (currentUserId == null) {
+                                    GuestDialog.show(context, 'Rencana Jelajah');
+                                  } else {
+                                    bool currentStatus = _isLocationBookmarked ?? location.isBookmarked;
+                                    setState(() {
+                                      _isLocationBookmarked = !currentStatus;
+                                    });
+                                    if (currentStatus) {
+                                      context.read<BookmarkInteractionBloc>().add(UnbookmarkLocationRequested(location.id));
+                                    } else {
+                                      context.read<BookmarkInteractionBloc>().add(BookmarkLocationRequested(location.id));
+                                    }
+                                  }
+                                },
+                                child: GlassContainer(
+                                  padding: const EdgeInsets.all(12),
+                                  borderRadius: 24,
+                                  child: Icon(
+                                    location.isVisited ? Icons.verified : ((_isLocationBookmarked ?? location.isBookmarked) ? Icons.bookmark : Icons.bookmark_border),
+                                    color: location.isVisited ? Colors.greenAccent : ((_isLocationBookmarked ?? location.isBookmarked) ? Colors.amber : Colors.white),
+                                    size: 24,
+                                  ),
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -401,13 +455,21 @@ class _PlaceHubViewState extends State<PlaceHubView> {
                                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                                     borderRadius: 30,
                                     color: isSelected ? themeColor.withOpacity(0.6) : Colors.white.withOpacity(0.15),
-                                    child: Text(
-                                      theme,
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                                        letterSpacing: 1.1,
-                                      ),
+                                    child: Row(
+                                      children: [
+                                        if (theme == 'Semua') ...[
+                                          const Icon(Icons.search, color: Colors.amber, size: 18),
+                                          const SizedBox(width: 6),
+                                        ],
+                                        Text(
+                                          theme,
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                            letterSpacing: 1.1,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ),
@@ -418,7 +480,7 @@ class _PlaceHubViewState extends State<PlaceHubView> {
 
                         const SizedBox(height: 24),
 
-                        // --- PAGEVIEW CAROUSEL FOR JOURNALS ---
+                        // --- LISTVIEW FOR JOURNALS ---
                         Expanded(
                           child: rootJournals.isEmpty
                               ? Center(
@@ -432,161 +494,175 @@ class _PlaceHubViewState extends State<PlaceHubView> {
                                     ),
                                   ),
                                 )
-                              : PageView.builder(
-                                  controller: _pageController,
+                              : ListView.builder(
+                                  padding: const EdgeInsets.only(bottom: 120, top: 8),
                                   itemCount: rootJournals.length,
                                   itemBuilder: (context, index) {
                                     final rootJournal = rootJournals[index];
                                     final themeColor = _getThemeColor(rootJournal.themeTag);
                                     final isOwned = currentUserId != null && rootJournal.user?.id == currentUserId;
+                                    final bool isWithdrawn = rootJournal.content == '[Jurnal ini telah ditarik oleh penulis]';
                                     
-                                    // Animasi Scale untuk efek Carousel 3D (agar lebih 'pop')
-                                    return AnimatedBuilder(
-                                      animation: _pageController,
-                                      builder: (context, child) {
-                                        double value = 1.0;
-                                        if (_pageController.position.haveDimensions) {
-                                          value = _pageController.page! - index;
-                                          value = (1 - (value.abs() * 0.15)).clamp(0.0, 1.0);
-                                        }
-                                        return Center(
-                                          child: SizedBox(
-                                            height: Curves.easeOut.transform(value) * MediaQuery.of(context).size.height * 0.65,
-                                            width: MediaQuery.of(context).size.width * 0.85,
-                                            child: child,
-                                          ),
-                                        );
-                                      },
-                                      child: Container(
-                                        margin: const EdgeInsets.symmetric(horizontal: 10),
-                                        child: GlassContainer(
-                                          padding: EdgeInsets.zero,
-                                          borderRadius: 36,
-                                          blur: 20, // Blur lebih kuat untuk kartu utama
-                                          color: Colors.white.withOpacity(0.12),
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                                            children: [
-                                              // Top Half: Full Image Photo
-                                              Expanded(
-                                                flex: 5,
-                                                child: ClipRRect(
-                                                  borderRadius: const BorderRadius.vertical(top: Radius.circular(36)),
-                                                  child: _JournalImageCarousel(
-                                                    mediaUrls: rootJournal.mediaUrls,
-                                                    placeholderPath: _getPlaceholderImage(index),
+                                    Widget cardChild = Container(
+                                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withOpacity(0.95), // Modern luxury clean white
+                                        borderRadius: BorderRadius.circular(24),
+                                        boxShadow: [
+                                          BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 20, offset: const Offset(0, 10)),
+                                        ],
+                                      ),
+                                      clipBehavior: Clip.hardEdge,
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          // Top: Author Info & Tag
+                                          Padding(
+                                            padding: const EdgeInsets.all(20.0),
+                                            child: Row(
+                                              children: [
+                                                CircleAvatar(
+                                                  radius: 20,
+                                                  backgroundImage: (rootJournal.user?.avatarUrl != null && rootJournal.user!.avatarUrl!.isNotEmpty)
+                                                      ? NetworkImage(rootJournal.user!.avatarUrl!.startsWith('http') 
+                                                          ? rootJournal.user!.avatarUrl! 
+                                                          : 'http://10.0.2.2:3000${rootJournal.user!.avatarUrl!.startsWith('/') ? '' : '/'}${rootJournal.user!.avatarUrl!}')
+                                                      : const AssetImage('assets/images/avatar_placeholder.jpg') as ImageProvider,
+                                                  backgroundColor: Colors.grey[300],
+                                                ),
+                                                const SizedBox(width: 12),
+                                                Expanded(
+                                                  child: Text(
+                                                    rootJournal.user?.username ?? 'Anonim',
+                                                    style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 16),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
                                                   ),
                                                 ),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                                  decoration: BoxDecoration(
+                                                    color: themeColor.withOpacity(0.1),
+                                                    border: Border.all(color: themeColor.withOpacity(0.3), width: 1),
+                                                    borderRadius: BorderRadius.circular(12),
+                                                  ),
+                                                  child: Text(
+                                                    rootJournal.themeTag,
+                                                    style: TextStyle(color: themeColor, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.5, fontFamily: 'Courier'),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          
+                                          // Middle: Image Grid (Protruding/No Padding)
+                                          if (rootJournal.mediaUrls.isNotEmpty)
+                                            SizedBox(
+                                              width: double.infinity,
+                                              height: 300, // Memberikan tinggi pasti agar tidak conflict di scrollview
+                                              child: _JournalImageGrid(
+                                                mediaUrls: rootJournal.mediaUrls,
+                                                placeholderPath: _getPlaceholderImage(index),
                                               ),
-                                              
-                                              // Bottom Half: Journal Details
-                                              Expanded(
-                                                flex: 4,
-                                                child: Padding(
-                                                  padding: const EdgeInsets.all(24.0),
-                                                  child: Column(
-                                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                                    children: [
-                                                      // Author Info & Tag
-                                                      Row(
-                                                        children: [
-                                                          CircleAvatar(
-                                                            radius: 20,
-                                                            backgroundImage: (rootJournal.user?.avatarUrl != null && rootJournal.user!.avatarUrl!.isNotEmpty)
-                                                                ? NetworkImage(rootJournal.user!.avatarUrl!.startsWith('http') 
-                                                                    ? rootJournal.user!.avatarUrl! 
-                                                                    : 'http://10.0.2.2:3000${rootJournal.user!.avatarUrl!.startsWith('/') ? '' : '/'}${rootJournal.user!.avatarUrl!}')
-                                                                : const AssetImage('assets/images/avatar_placeholder.jpg') as ImageProvider,
-                                                            backgroundColor: Colors.grey[700],
-                                                          ),
-                                                          const SizedBox(width: 12),
-                                                          Expanded(
-                                                            child: Text(
-                                                              rootJournal.user?.username ?? 'Anonim',
-                                                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
-                                                              maxLines: 1,
-                                                              overflow: TextOverflow.ellipsis,
-                                                            ),
-                                                          ),
-                                                          Container(
-                                                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                                            decoration: BoxDecoration(
-                                                              color: themeColor.withOpacity(0.9),
-                                                              borderRadius: BorderRadius.circular(16),
-                                                              boxShadow: [BoxShadow(color: themeColor.withOpacity(0.4), blurRadius: 8, offset: const Offset(0, 4))]
-                                                            ),
-                                                            child: Text(
-                                                              rootJournal.themeTag,
-                                                              style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.5),
-                                                            ),
-                                                          ),
-                                                        ],
+                                            ),
+                                          
+                                          // Middle: Text Content
+                                          if (rootJournal.content.isNotEmpty)
+                                            Padding(
+                                              padding: const EdgeInsets.all(20.0),
+                                              child: Text(
+                                                rootJournal.content,
+                                                style: const TextStyle(color: Colors.black87, fontSize: 15, height: 1.5, fontFamily: 'Georgia'),
+                                              ),
+                                            ),
+                                          
+                                          // Bottom: Elegant Divider & Actions
+                                          if (rootJournal.content.isEmpty && rootJournal.mediaUrls.isNotEmpty)
+                                            const SizedBox(height: 12),
+                                            
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                                            child: Divider(color: Colors.grey.shade200, height: 1),
+                                          ),
+                                          Padding(
+                                            padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+                                            child: Row(
+                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                Row(
+                                                  children: [
+                                                    GestureDetector(
+                                                      onTap: () {
+                                                        if (currentUserId == null) {
+                                                          GuestDialog.show(context, 'Koleksi Inspirasi');
+                                                        } else {
+                                                          bool currentStatus = _localJournalBookmarks[rootJournal.id] ?? rootJournal.isBookmarked;
+                                                          setState(() {
+                                                            _localJournalBookmarks[rootJournal.id] = !currentStatus;
+                                                          });
+                                                          if (currentStatus) {
+                                                            context.read<BookmarkInteractionBloc>().add(UnsaveJournalRequested(rootJournal.id));
+                                                          } else {
+                                                            context.read<BookmarkInteractionBloc>().add(SaveJournalRequested(rootJournal.id));
+                                                          }
+                                                        }
+                                                      },
+                                                      child: Icon(
+                                                        (_localJournalBookmarks[rootJournal.id] ?? rootJournal.isBookmarked) ? Icons.bookmark : Icons.bookmark_border,
+                                                        color: (_localJournalBookmarks[rootJournal.id] ?? rootJournal.isBookmarked) ? const Color(0xFF4CAF50) : Colors.grey.shade700,
+                                                        size: 26,
                                                       ),
-                                                      const SizedBox(height: 20),
-                                                      
-                                                      // Journal Content
-                                                      Expanded(
-                                                        child: Text(
-                                                          rootJournal.content,
-                                                          style: const TextStyle(color: Colors.white, fontSize: 16, height: 1.5, letterSpacing: 0.3),
-                                                          overflow: TextOverflow.fade,
-                                                        ),
-                                                      ),
-                                                      
-                                                      const SizedBox(height: 16),
-                                                      // Actions Bar
-                                                      Row(
-                                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                                        children: [
-                                                          Row(
-                                                            children: [
-                                                              GestureDetector(
-                                                                onTap: () {
-                                                                  if (currentUserId == null) {
-                                                                    _handleRestrictedAction(context, 'menyimpan jurnal', '/login');
-                                                                  } else {
-                                                                    context.read<JournalInteractionBloc>().add(BookmarkJournalRequested(rootJournal.id));
-                                                                  }
-                                                                },
-                                                                child: const Icon(Icons.bookmark_border, color: Colors.white, size: 28),
-                                                              ),
-                                                              const SizedBox(width: 24),
-                                                              GestureDetector(
-                                                                onTap: () => _showReplies(context, rootJournal.id, repliesMap),
-                                                                child: const Icon(Icons.mode_comment_outlined, color: Colors.white, size: 28),
-                                                              ),
-                                                              const SizedBox(width: 6),
-                                                              Text('${repliesMap[rootJournal.id]?.length ?? 0}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                                                            ],
-                                                          ),
-                                                          if (isOwned)
-                                                            PopupMenuButton<String>(
-                                                              icon: const Icon(Icons.more_vert, color: Colors.white, size: 28),
-                                                              color: const Color(0xFF2C2C2C),
-                                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                                              onSelected: (value) {
-                                                                if (value == 'archive') {
-                                                                  context.read<JournalInteractionBloc>().add(ArchiveJournalRequested(rootJournal.id));
-                                                                } else if (value == 'delete') {
-                                                                  context.read<JournalInteractionBloc>().add(DeleteJournalRequested(rootJournal.id));
-                                                                }
-                                                              },
-                                                              itemBuilder: (context) => [
-                                                                const PopupMenuItem(value: 'archive', child: Text('Arsipkan', style: TextStyle(color: Colors.white))),
-                                                                const PopupMenuItem(value: 'delete', child: Text('Hapus Permanen', style: TextStyle(color: Colors.redAccent))),
-                                                              ],
-                                                            ),
-                                                        ],
-                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 24),
+                                                    GestureDetector(
+                                                      onTap: () => _showReplies(context, rootJournal, repliesMap, location, currentTheme),
+                                                      child: Icon(Icons.mode_comment_outlined, color: Colors.grey.shade700, size: 26),
+                                                    ),
+                                                    const SizedBox(width: 6),
+                                                    Text('${repliesMap[rootJournal.id]?.length ?? 0}', style: TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.bold, fontSize: 16, fontFamily: 'Courier')),
+                                                  ],
+                                                ),
+                                                if (isOwned)
+                                                  PopupMenuButton<String>(
+                                                    icon: Icon(Icons.more_vert, color: Colors.grey.shade700, size: 26),
+                                                    color: Colors.white,
+                                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                                    onSelected: (value) {
+                                                      if (value == 'archive') {
+                                                        context.read<JournalInteractionBloc>().add(ArchiveJournalRequested(rootJournal.id));
+                                                      } else if (value == 'delete') {
+                                                        context.read<JournalInteractionBloc>().add(DeleteJournalRequested(rootJournal.id));
+                                                      }
+                                                    },
+                                                    itemBuilder: (context) => [
+                                                      const PopupMenuItem(value: 'archive', child: Text('Arsipkan', style: TextStyle(color: Colors.black87))),
+                                                      const PopupMenuItem(value: 'delete', child: Text('Hapus Permanen', style: TextStyle(color: Colors.redAccent))),
                                                     ],
                                                   ),
-                                                ),
-                                              ),
-                                            ],
+                                              ],
+                                            ),
                                           ),
-                                        ),
+                                        ],
                                       ),
                                     );
+                                    
+                                    if (isWithdrawn) {
+                                      cardChild = ColorFiltered(
+                                        colorFilter: const ColorFilter.matrix([
+                                          0.2126, 0.7152, 0.0722, 0, 0,
+                                          0.2126, 0.7152, 0.0722, 0, 0,
+                                          0.2126, 0.7152, 0.0722, 0, 0,
+                                          0,      0,      0,      1, 0,
+                                        ]),
+                                        child: Opacity(
+                                          opacity: 0.85,
+                                          child: cardChild,
+                                        ),
+                                      );
+                                    }
+                                    
+                                    return cardChild;
                                   },
                                 ),
                         ),

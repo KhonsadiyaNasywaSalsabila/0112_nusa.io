@@ -8,28 +8,11 @@ class JournalInteractionBloc extends Bloc<JournalInteractionEvent, JournalIntera
   final JournalRepository repository;
 
   JournalInteractionBloc({required this.repository}) : super(JournalInteractionInitial()) {
-    on<BookmarkJournalRequested>(_onBookmarkRequested);
     on<ArchiveJournalRequested>(_onArchiveRequested);
     on<DeleteJournalRequested>(_onDeleteRequested);
   }
 
-  Future<void> _onBookmarkRequested(BookmarkJournalRequested event, Emitter<JournalInteractionState> emit) async {
-    emit(JournalInteractionLoading());
-    try {
-      final res = await repository.addBookmark(event.journalId);
-      
-      if (res.statusCode == 201) {
-        emit(const JournalBookmarkSuccess("Berhasil disimpan ke Rencana Jelajah!"));
-      } else {
-        emit(const JournalInteractionFailure("Gagal menyimpan rencana jelajah."));
-      }
-    } on DioException catch (e) {
-      final msg = e.response?.data['message'] ?? "Gagal menyimpan jejak.";
-      emit(JournalInteractionFailure(msg));
-    } catch (e) {
-      emit(JournalInteractionFailure("Terjadi kesalahan: $e"));
-    }
-  }
+
 
   Future<void> _onArchiveRequested(ArchiveJournalRequested event, Emitter<JournalInteractionState> emit) async {
     emit(JournalInteractionLoading());

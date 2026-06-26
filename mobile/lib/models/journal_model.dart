@@ -8,6 +8,7 @@ class JournalModel {
   final double latitudeCaptured;
   final double longitudeCaptured;
   final String? rootJournalId;
+  final String? locationId;
   final DateTime? createdAt;
   
   // Relasi
@@ -17,6 +18,8 @@ class JournalModel {
   // Khusus Local Draft
   final bool isLocal;
   final List<String> localMediaPaths;
+  final int replyCount;
+  final bool isBookmarked;
 
   JournalModel({
     required this.id,
@@ -26,11 +29,14 @@ class JournalModel {
     required this.latitudeCaptured,
     required this.longitudeCaptured,
     this.rootJournalId,
+    this.locationId,
     this.createdAt,
     this.user,
     this.mediaUrls = const [],
     this.isLocal = false,
     this.localMediaPaths = const [],
+    this.replyCount = 0,
+    this.isBookmarked = false,
   });
 
   factory JournalModel.fromJson(Map<String, dynamic> json) {
@@ -44,13 +50,14 @@ class JournalModel {
     }
 
     return JournalModel(
-      id: json['id'] ?? '',
+      id: json['id']?.toString() ?? '',
       content: json['content'] ?? '',
       themeTag: json['themeTag'] ?? 'NATURE',
       status: json['status'] ?? 'DRAFT',
       latitudeCaptured: double.tryParse(json['latitudeCaptured']?.toString() ?? '0') ?? 0.0,
       longitudeCaptured: double.tryParse(json['longitudeCaptured']?.toString() ?? '0') ?? 0.0,
-      rootJournalId: json['rootJournalId'],
+      rootJournalId: json['rootJournalId']?.toString(),
+      locationId: json['locationId']?.toString(),
       createdAt: json['createdAt'] != null ? DateTime.parse(json['createdAt']) : null,
       user: json['user'] != null ? UserModel.fromJson(json['user']) : null,
       mediaUrls: media,
@@ -58,6 +65,8 @@ class JournalModel {
       localMediaPaths: json['localMediaPaths'] != null 
           ? (json['localMediaPaths'] as String).split(',') 
           : [],
+      replyCount: json['_count']?['childJournals'] ?? 0,
+      isBookmarked: json['isBookmarked'] ?? false,
     );
   }
 
@@ -70,9 +79,10 @@ class JournalModel {
       'latitudeCaptured': latitudeCaptured,
       'longitudeCaptured': longitudeCaptured,
       'rootJournalId': rootJournalId,
+      'locationId': locationId,
       'isLocal': isLocal ? 1 : 0,
       'localMediaPaths': localMediaPaths.join(','),
-      // 'createdAt' and 'user' usually aren't sent back to the server in this format during creation
+      'mediaUrls': mediaUrls,
     };
   }
 }

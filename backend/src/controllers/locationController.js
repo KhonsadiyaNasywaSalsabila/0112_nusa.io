@@ -15,10 +15,14 @@ const getLocations = async (req, res) => {
       }
     });
 
-    // 3. Tarik data bookmark JIKA yang akses adalah User Login
+    // 3. Tarik data bookmark dan stempel JIKA yang akses adalah User Login
     let userBookmarks = [];
+    let userStamps = [];
     if (userId) {
-      userBookmarks = await prisma.bookmark.findMany({
+      userBookmarks = await prisma.userBookmarkLocation.findMany({
+        where: { userId: userId }
+      });
+      userStamps = await prisma.userStamp.findMany({
         where: { userId: userId }
       });
     }
@@ -27,17 +31,18 @@ const getLocations = async (req, res) => {
     const formattedLocations = locations.map(loc => {
       // Cek apakah ID lokasi ini ada di dalam daftar bookmark si User
       const isBookmarked = userBookmarks.some(b => b.locationId === loc.id);
+      const isVisited = userStamps.some(s => s.locationId === loc.id);
 
       return {
         id: loc.id,
         name: loc.name,
-        // Pastikan nama kolom di bawah ini sesuai dengan schema.prisma milikmu:
         description: loc.description || "",
-        lat: loc.lat, 
-        lng: loc.lng,
-        theme: loc.theme || "Lainnya",
-        journalCount: loc._count.journals, // Angka untuk intensitas glow di peta
-        isBookmarked: isBookmarked         // true/false dinamis
+        latitude: Number(loc.latitude),
+        longitude: Number(loc.longitude),
+        geofenceRadius: Number(loc.geofenceRadius),
+        journalCount: loc._count.journals,
+        isBookmarked: isBookmarked,
+        isVisited: isVisited
       };
     });
 
@@ -62,7 +67,7 @@ const getLocationJournals = async (req, res) => {
     // Ambil info lokasi
     const location = await prisma.location.findUnique({
       where: { id },
-      select: { id: true, name: true, coverPhotoUrl: true, description: true }
+      select: { id: true, name: true, latitude: true, longitude: true, geofenceRadius: true, coverPhotoUrl: true, description: true }
     });
 
     if (!location) {
@@ -91,17 +96,48 @@ const getLocationJournals = async (req, res) => {
       }
     });
 
+    // Cek bookmark lokasi, jurnal, dan status kunjungan jika user login
+    let isLocationBookmarked = false;
+    let isLocationVisited = false;
+    let savedJournalIds = [];
+    
+    if (req.user) {
+      const userBookmark = await prisma.userBookmarkLocation.findUnique({
+        where: { userId_locationId: { userId: req.user.id, locationId: id } }
+      });
+      isLocationBookmarked = !!userBookmark;
+
+      const userStamp = await prisma.userStamp.findFirst({
+        where: { userId: req.user.id, locationId: id }
+      });
+      isLocationVisited = !!userStamp;
+
+      const savedJournals = await prisma.userSavedJournal.findMany({
+        where: { userId: req.user.id, journalId: { in: journalsData.map(j => j.id) } },
+        select: { journalId: true }
+      });
+      savedJournalIds = savedJournals.map(sj => sj.journalId);
+    }
+    
     const journals = journalsData.map(j => ({
       ...j,
       content: j.status === 'PRIVATE_ARCHIVE' ? "[Jurnal ini telah diarsipkan oleh penulis]" : j.content,
-      media: j.status === 'PRIVATE_ARCHIVE' ? [] : j.media 
+      media: j.status === 'PRIVATE_ARCHIVE' ? [] : j.media,
+      isBookmarked: savedJournalIds.includes(j.id)
     }));
+
+    // Tambahkan isBookmarked dan isVisited ke object location
+    const locationWithBookmark = { 
+      ...location, 
+      isBookmarked: isLocationBookmarked,
+      isVisited: isLocationVisited
+    };
 
     res.status(200).json({
       success: true,
       message: "Berhasil memuat Pusat Arsip Lokasi",
       data: {
-        location,
+        location: locationWithBookmark,
         journals
       }
     });

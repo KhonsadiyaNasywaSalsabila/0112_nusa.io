@@ -1,12 +1,19 @@
+import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:dio/dio.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../blocs/profile/profile_bloc.dart';
 import '../blocs/profile/profile_event.dart';
 import '../blocs/profile/profile_state.dart';
 import '../models/location_model.dart';
+import '../models/user_model.dart';
+import '../repositories/journal_repository.dart';
+import '../blocs/auth/auth_bloc.dart';
+import '../blocs/auth/auth_event.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({Key? key}) : super(key: key);
@@ -29,6 +36,32 @@ class ProfileView extends StatefulWidget {
 
 class _ProfileViewState extends State<ProfileView> {
   final ImagePicker _picker = ImagePicker();
+  
+  final List<String> _themes = ['Semua', 'VINTAGE', 'ALAM', 'KULINER', 'SOSIAL', 'PERSONAL', 'MINDFUL'];
+  String _memorySearchQuery = '';
+  String _memoryTheme = 'Semua';
+  String _archiveSearchQuery = '';
+  String _archiveTheme = 'Semua';
+  String _stampSearchQuery = '';
+  Timer? _debounce;
+  Timer? _stampDebounce;
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _stampDebounce?.cancel();
+    super.dispose();
+  }
+
+  void _onStampSearchChanged(String value) {
+    if (_stampDebounce?.isActive ?? false) _stampDebounce!.cancel();
+    _stampDebounce = Timer(const Duration(milliseconds: 500), () {
+      setState(() {
+        _stampSearchQuery = value;
+      });
+      context.read<ProfileBloc>().add(FilterStampsRequested(value));
+    });
+  }
 
   Future<void> _pickAndUploadImage(BuildContext context) async {
     final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
@@ -73,104 +106,437 @@ class _ProfileViewState extends State<ProfileView> {
   }
 
   Widget _buildStampsGrid(List<dynamic> stamps) {
-    if (stamps.isEmpty) {
-      return const Center(child: Text("Belum ada stempel paspor", style: TextStyle(color: Colors.black54)));
-    }
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: TextField(
+            onChanged: _onStampSearchChanged,
+            decoration: InputDecoration(
+              hintText: "Cari stempel lokasi...",
+              prefixIcon: const Icon(Icons.search, color: Colors.grey),
+              filled: true,
+              fillColor: Colors.grey.shade100,
+              contentPadding: const EdgeInsets.symmetric(vertical: 0),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(30),
+                borderSide: BorderSide.none,
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(30),
+                borderSide: const BorderSide(color: Colors.green, width: 1.5),
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: stamps.isEmpty
+              ? const Center(child: Text("Belum ada stempel paspor", style: TextStyle(color: Colors.black54)))
+              : GridView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 16,
+                    childAspectRatio: 0.8,
+                  ),
+                  itemCount: stamps.length,
+                  itemBuilder: (context, index) {
+                    final stamp = stamps[index];
+                    final locJson = stamp['location'] as Map<String, dynamic>;
+                    final loc = LocationModel.fromJson(locJson);
+                    
+                    // Format date
+                    final earnedAtStr = stamp['earnedAt'] as String?;
+                    String dateStr = "UNKNOWN";
+                    if (earnedAtStr != null) {
+                      try {
+                        final date = DateTime.parse(earnedAtStr);
+                        dateStr = "${date.day.toString().padLeft(2, '0')}.${date.month.toString().padLeft(2, '0')}.${date.year}";
+                      } catch (_) {}
+                    }
 
-    return GridView.builder(
-      padding: const EdgeInsets.all(16),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 16,
-        mainAxisSpacing: 16,
-        childAspectRatio: 0.8,
-      ),
-      itemCount: stamps.length,
-      itemBuilder: (context, index) {
-        final locJson = stamps[index]['location'] as Map<String, dynamic>;
-        final loc = LocationModel.fromJson(locJson);
-        return Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4)],
-            image: loc.coverPhotoUrl != null && loc.coverPhotoUrl!.isNotEmpty
-                ? DecorationImage(
-                    image: NetworkImage(loc.coverPhotoUrl!),
-                    fit: BoxFit.cover,
-                    colorFilter: ColorFilter.mode(Colors.black.withOpacity(0.4), BlendMode.darken),
-                  )
-                : null,
-            color: Colors.green.shade700,
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.verified, color: Colors.amber, size: 32),
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                child: Text(
-                  loc.name,
-                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+                    // Pseudo-random properties based on location ID to keep it consistent
+                    final math.Random random = math.Random(loc.id.hashCode);
+                    final double angle = (random.nextDouble() * 0.5) - 0.25; // -0.25 to 0.25 radians
+                    final List<Color> colors = [
+                      const Color(0xFF9E2A2B), // Vintage Red
+                      const Color(0xFF1D3557), // Navy Blue
+                      const Color(0xFF386641), // Forest Green
+                      const Color(0xFF5D2E46), // Purple
+                    ];
+                    final Color stampColor = colors[random.nextInt(colors.length)];
+                    final int shapeType = random.nextInt(4);
+                    final bool isCircle = shapeType == 0;
+                    BorderRadius? outerRadius;
+                    BorderRadius? innerRadius;
+                    if (!isCircle) {
+                      if (shapeType == 1) {
+                        outerRadius = BorderRadius.circular(12); // Melengkung biasa
+                        innerRadius = BorderRadius.circular(8);
+                      } else if (shapeType == 2) {
+                        outerRadius = BorderRadius.circular(4); // Hampir kotak tajam
+                        innerRadius = BorderRadius.circular(2);
+                      } else {
+                        outerRadius = BorderRadius.circular(32); // Melengkung ekstrem (Kapsul/Stadium)
+                        innerRadius = BorderRadius.circular(28);
+                      }
+                    }
+
+                    return Center(
+                      child: Transform.rotate(
+                        angle: angle,
+                        child: Container(
+                          width: 100,
+                          height: 100,
+                          decoration: BoxDecoration(
+                            shape: isCircle ? BoxShape.circle : BoxShape.rectangle,
+                            borderRadius: outerRadius,
+                            border: Border.all(
+                              color: stampColor.withOpacity(0.8),
+                              width: 3.5,
+                            ),
+                          ),
+                          child: Stack(
+                            children: [
+                              // Inner border
+                              Positioned.fill(
+                                child: Container(
+                                  margin: const EdgeInsets.all(4),
+                                  decoration: BoxDecoration(
+                                    shape: isCircle ? BoxShape.circle : BoxShape.rectangle,
+                                    borderRadius: innerRadius,
+                                    border: Border.all(
+                                      color: stampColor.withOpacity(0.5),
+                                      width: 1,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              // Content
+                              Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.flight_land,
+                                      color: stampColor.withOpacity(0.9),
+                                      size: 24,
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                                      child: Text(
+                                        loc.name.toUpperCase(),
+                                        style: TextStyle(
+                                          color: stampColor,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: 1,
+                                          fontFamily: 'Courier', 
+                                        ),
+                                        textAlign: TextAlign.center,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      dateStr,
+                                      style: TextStyle(
+                                        color: stampColor.withOpacity(0.85),
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.bold,
+                                        fontFamily: 'Courier',
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      "ARRIVED",
+                                      style: TextStyle(
+                                        color: stampColor.withOpacity(0.7),
+                                        fontSize: 7,
+                                        letterSpacing: 2,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 ),
-              )
-            ],
-          ),
-        );
-      },
+        ),
+      ],
     );
   }
 
-  Widget _buildArchivesList(List<dynamic> archives) {
-    if (archives.isEmpty) {
-      return const Center(child: Text("Belum ada jurnal yang diarsipkan", style: TextStyle(color: Colors.black54)));
+  Future<void> _editJournal(dynamic journal) async {
+    final result = await context.push('/zen-editor', extra: {
+      'id': journal['id'],
+      'locationId': journal['location']?['id'] ?? journal['locationId'], // In case location object is nested
+      'content': journal['content'],
+      'themeTag': journal['themeTag'],
+      'latitudeCaptured': journal['latitudeCaptured'],
+      'longitudeCaptured': journal['longitudeCaptured'],
+      'mediaUrls': (journal['media'] as List<dynamic>?)?.map((m) => m['mediaUrl']).toList(),
+      'isLocal': false,
+      'status': journal['status'],
+    });
+    
+    // Refresh profile if returning true (meaning published/updated)
+    if (result == true && mounted) {
+      context.read<ProfileBloc>().add(ProfileRequested());
     }
+  }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: archives.length,
-      itemBuilder: (context, index) {
+  Future<void> _confirmDeleteJournal(dynamic journal) async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Hapus Jurnal?'),
+          content: const Text('Apakah Anda yakin ingin menghapus jurnal ini?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text('Hapus', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirm == true && mounted) {
+      try {
+        final res = await context.read<JournalRepository>().deleteJournal(journal['id']);
+        if (res.statusCode == 200) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(res.data['message'] ?? 'Berhasil menghapus jurnal')),
+            );
+            context.read<ProfileBloc>().add(ProfileRequested());
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Gagal menghapus jurnal'), backgroundColor: Colors.red),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _archiveJournal(dynamic journal) async {
+    try {
+      final res = await context.read<JournalRepository>().archiveJournal(journal['id']);
+      if (res.statusCode == 200) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(res.data['message'] ?? 'Berhasil mengarsipkan jurnal'), backgroundColor: Colors.orange),
+          );
+          context.read<ProfileBloc>().add(ProfileRequested());
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Gagal mengarsipkan jurnal'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _publishJournal(dynamic journal) async {
+    try {
+      final res = await context.read<JournalRepository>().publishJournal(journal['id']);
+      if (res.statusCode == 200) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(res.data['message'] ?? 'Berhasil mempublikasikan jurnal'), backgroundColor: Colors.green),
+          );
+          context.read<ProfileBloc>().add(ProfileRequested());
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Gagal mempublikasikan jurnal'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Widget _buildFilterHeader({
+    required String searchQuery,
+    required String selectedTheme,
+    required Function(String) onSearchChanged,
+    required Function(String?) onThemeChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: TextEditingController(text: searchQuery)..selection = TextSelection.fromPosition(TextPosition(offset: searchQuery.length)),
+              decoration: InputDecoration(
+                hintText: 'Cari kata kunci...',
+                prefixIcon: const Icon(Icons.search, size: 20),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(20)),
+              ),
+              onChanged: onSearchChanged,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.shade400),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: selectedTheme,
+                items: _themes.map((theme) {
+                  return DropdownMenuItem<String>(
+                    value: theme,
+                    child: Text(theme, style: const TextStyle(fontSize: 14)),
+                  );
+                }).toList(),
+                onChanged: onThemeChanged,
+              ),
+            ),
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildArchivesList(List<dynamic> archives, bool hasMore, VoidCallback onLoadMore) {
+    return Column(
+      children: [
+        _buildFilterHeader(
+          searchQuery: _archiveSearchQuery,
+          selectedTheme: _archiveTheme,
+          onSearchChanged: (val) {
+            _archiveSearchQuery = val;
+            if (_debounce?.isActive ?? false) _debounce!.cancel();
+            _debounce = Timer(const Duration(milliseconds: 500), () {
+              context.read<ProfileBloc>().add(FilterArchivesRequested(theme: _archiveTheme, search: _archiveSearchQuery));
+            });
+          },
+          onThemeChanged: (val) {
+            if (val != null) {
+              setState(() => _archiveTheme = val);
+              context.read<ProfileBloc>().add(FilterArchivesRequested(theme: _archiveTheme, search: _archiveSearchQuery));
+            }
+          },
+        ),
+        Expanded(
+          child: archives.isEmpty
+              ? const Center(child: Text("Belum ada jurnal yang diarsipkan", style: TextStyle(color: Colors.black54)))
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  itemCount: archives.length + (hasMore ? 1 : 0),
+                  itemBuilder: (context, index) {
+        if (index == archives.length) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16.0),
+            child: Center(
+              child: ElevatedButton(
+                onPressed: onLoadMore,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.blueAccent,
+                  side: const BorderSide(color: Colors.blueAccent),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                ),
+                child: const Text("Muat Lebih Banyak"),
+              ),
+            ),
+          );
+        }
+
         final journal = archives[index];
         final locationName = journal['location']?['name'] ?? 'Lokasi';
         final content = journal['content'] ?? '';
         final mediaList = journal['media'] as List<dynamic>? ?? [];
         
-        return Card(
-          margin: const EdgeInsets.only(bottom: 16),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Lock Header
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade200,
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+        final math.Random random = math.Random(journal['id'].hashCode);
+        final double angle = (random.nextDouble() * 0.06) - 0.03; // -0.03 to 0.03 radians tilt
+        
+        final List<Color> paperColors = [
+          const Color(0xFFF9F6EE), // Krem polaroid
+          const Color(0xFFFDFBF7), // Putih tulang
+          const Color(0xFFF4ECD8), // Kertas tua
+          const Color(0xFFEBE3D5), // Sedikit kusam
+          const Color(0xFFE8F0E5), // Hijau sage pudar
+          const Color(0xFFE6EBF0), // Biru pudar vintage
+          const Color(0xFFF2E6E6), // Merah bata pudar
+          const Color(0xFFF0ECD8), // Kuning mentega pudar
+        ];
+        final Color bgColor = paperColors[random.nextInt(paperColors.length)];
+
+        final List<String> fontChoices = ['Courier', 'Georgia'];
+        final String fontFamily = fontChoices[random.nextInt(fontChoices.length)];
+        
+        final replyCount = journal['_count']?['childJournals'] ?? 0;
+        
+        return Transform.rotate(
+          angle: angle,
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 24, left: 4, right: 4, top: 4),
+            decoration: BoxDecoration(
+              color: bgColor,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.15),
+                  blurRadius: 10,
+                  offset: Offset(random.nextDouble() * 4, random.nextDouble() * 4 + 2),
                 ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.lock, size: 16, color: Colors.grey),
-                    const SizedBox(width: 8),
-                    const Text("Hanya Anda yang bisa melihat ini", style: TextStyle(fontSize: 12, color: Colors.grey)),
-                    const Spacer(),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
+              ],
+              border: Border.all(color: Colors.grey.shade400, width: 0.5),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header Lock (Vintage)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    border: Border(bottom: BorderSide(color: Colors.grey.shade300, width: 1)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.lock_outline, size: 16, color: Colors.black54),
+                      const SizedBox(width: 8),
+                      const Text("ARSIP PRIBADI", style: TextStyle(fontSize: 10, letterSpacing: 1, fontWeight: FontWeight.bold, color: Colors.black54, fontFamily: 'Courier')),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.black45, width: 0.5),
+                        ),
+                        child: Text(
+                          (journal['themeTag'] ?? 'LAINNYA').toString().toUpperCase(),
+                          style: const TextStyle(color: Colors.black87, fontSize: 9, fontWeight: FontWeight.bold, fontFamily: 'Courier', letterSpacing: 0.5),
+                        ),
                       ),
-                      child: Text(
-                        journal['themeTag'] ?? 'Lainnya',
-                        style: const TextStyle(color: Colors.orange, fontSize: 10, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
               // Body
               Padding(
                 padding: const EdgeInsets.all(16),
@@ -178,43 +544,145 @@ class _ProfileViewState extends State<ProfileView> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      locationName,
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      locationName.toUpperCase(),
+                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, letterSpacing: 0.5, fontFamily: fontFamily),
                     ),
                     const SizedBox(height: 8),
-                    Text(content, style: const TextStyle(fontSize: 14)),
+                    Text(content, style: TextStyle(fontSize: 14, fontFamily: fontFamily, color: Colors.black87)),
                     if (mediaList.isNotEmpty) ...[
                       const SizedBox(height: 12),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.network(
-                          'http://10.0.2.2:3000${mediaList[0]['url']}',
-                          height: 150,
-                          width: double.infinity,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(height: 150, color: Colors.grey.shade300, child: const Icon(Icons.broken_image)),
+                      ColorFiltered(
+                        colorFilter: const ColorFilter.matrix([
+                          // Bervariasi sedikit warnanya berdasarkan random
+                          0.50, 0.40, 0.10, 0, 0,
+                          0.30, 0.60, 0.10, 0, 0,
+                          0.20, 0.20, 0.40, 0, 0,
+                          0,    0,    0,    1, 0,
+                        ]),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey.shade400, width: 1),
+                          ),
+                          child: Image.network(
+                            'http://10.0.2.2:3000${mediaList[0]['mediaUrl']}', // Menggunakan mediaUrl sesuai skema baru
+                            height: 180,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              height: 180, 
+                              color: Colors.grey.shade300, 
+                              child: const Center(child: Icon(Icons.broken_image, color: Colors.grey)),
+                            ),
+                          ),
                         ),
                       )
-                    ]
+                    ],
+                    // Action Buttons (Scrapbook style)
+                    const SizedBox(height: 16),
+                    const Divider(color: Colors.grey, thickness: 0.5),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // Reply Count
+                        Row(
+                          children: [
+                            const Icon(Icons.forum_outlined, size: 16, color: Colors.grey),
+                            const SizedBox(width: 4),
+                            Text(
+                              "$replyCount Balasan",
+                              style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Courier'),
+                            ),
+                          ],
+                        ),
+                        // Actions
+                        Row(
+                          children: [
+                            IconButton(
+                              onPressed: () => _publishJournal(journal),
+                              icon: const Icon(Icons.public, size: 20, color: Colors.green),
+                              tooltip: "Pulihkan Publik",
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                            ),
+                            const SizedBox(width: 16),
+                            IconButton(
+                              onPressed: () => _editJournal(journal),
+                              icon: const Icon(Icons.edit_outlined, size: 20, color: Colors.teal),
+                              tooltip: "Edit",
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                            ),
+                            const SizedBox(width: 16),
+                            IconButton(
+                              onPressed: () => _confirmDeleteJournal(journal),
+                              icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red),
+                              tooltip: "Hapus",
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                            ),
+                          ],
+                        ),
+                      ],
+                    )
                   ],
                 ),
               )
             ],
           ),
-        );
-      },
+        ),
+      );
+                  },
+                ),
+        ),
+      ],
     );
   }
 
-  Widget _buildMemoriesList(List<dynamic> memories) {
-    if (memories.isEmpty) {
-      return const Center(child: Text("Belum ada jejak memori publik", style: TextStyle(color: Colors.black54)));
-    }
+  Widget _buildMemoriesList(List<dynamic> memories, bool hasMore, VoidCallback onLoadMore) {
+    return Column(
+      children: [
+        _buildFilterHeader(
+          searchQuery: _memorySearchQuery,
+          selectedTheme: _memoryTheme,
+          onSearchChanged: (val) {
+            _memorySearchQuery = val;
+            if (_debounce?.isActive ?? false) _debounce!.cancel();
+            _debounce = Timer(const Duration(milliseconds: 500), () {
+              context.read<ProfileBloc>().add(FilterMemoriesRequested(theme: _memoryTheme, search: _memorySearchQuery));
+            });
+          },
+          onThemeChanged: (val) {
+            if (val != null) {
+              setState(() => _memoryTheme = val);
+              context.read<ProfileBloc>().add(FilterMemoriesRequested(theme: _memoryTheme, search: _memorySearchQuery));
+            }
+          },
+        ),
+        Expanded(
+          child: memories.isEmpty
+              ? const Center(child: Text("Belum ada jejak memori publik", style: TextStyle(color: Colors.black54)))
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  itemCount: memories.length + (hasMore ? 1 : 0),
+                  itemBuilder: (context, index) {
+        if (index == memories.length) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16.0),
+            child: Center(
+              child: ElevatedButton(
+                onPressed: onLoadMore,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.blueAccent,
+                  side: const BorderSide(color: Colors.blueAccent),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                ),
+                child: const Text("Muat Lebih Banyak"),
+              ),
+            ),
+          );
+        }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: memories.length,
-      itemBuilder: (context, index) {
         final journal = memories[index];
         final loc = journal['location'];
         final locationName = loc?['name'] ?? 'Lokasi';
@@ -222,34 +690,65 @@ class _ProfileViewState extends State<ProfileView> {
         final content = journal['content'] ?? '';
         final mediaList = journal['media'] as List<dynamic>? ?? [];
         
-        return Card(
-          margin: const EdgeInsets.only(bottom: 16),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        final replyCount = journal['_count']?['childJournals'] ?? 0;
+
+        final math.Random random = math.Random(journal['id'].hashCode);
+        final double angle = (random.nextDouble() * 0.06) - 0.03; // -0.03 to 0.03 radians tilt
+        
+        final List<Color> paperColors = [
+          const Color(0xFFF9F6EE), // Krem polaroid
+          const Color(0xFFFDFBF7), // Putih tulang
+          const Color(0xFFF4ECD8), // Kertas tua
+          const Color(0xFFEBE3D5), // Sedikit kusam
+          const Color(0xFFE8F0E5), // Hijau sage pudar
+          const Color(0xFFE6EBF0), // Biru pudar vintage
+          const Color(0xFFF2E6E6), // Merah bata pudar
+          const Color(0xFFF0ECD8), // Kuning mentega pudar
+        ];
+        final Color bgColor = paperColors[random.nextInt(paperColors.length)];
+
+        final List<String> fontChoices = ['Courier', 'Georgia'];
+        final String fontFamily = fontChoices[random.nextInt(fontChoices.length)];
+
+        return Transform.rotate(
+          angle: angle,
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 24, left: 4, right: 4, top: 4),
+            decoration: BoxDecoration(
+              color: bgColor, // Warna kertas acak
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.15),
+                  blurRadius: 10,
+                  offset: Offset(random.nextDouble() * 4, random.nextDouble() * 4 + 2),
+                ),
+              ],
+              border: Border.all(color: Colors.grey.shade400, width: 0.5),
+            ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Location & Tag Header
+              // Header Vintage
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 decoration: BoxDecoration(
-                  color: isActive ? Colors.blue.withOpacity(0.1) : Colors.grey.shade200,
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                  border: Border(bottom: BorderSide(color: Colors.grey.shade300, width: 1)),
                 ),
                 child: Row(
                   children: [
-                    Icon(isActive ? Icons.public : Icons.history, size: 16, color: isActive ? Colors.blue : Colors.grey),
+                    Icon(isActive ? Icons.public : Icons.history_toggle_off, size: 16, color: Colors.grey.shade700),
                     const SizedBox(width: 8),
-                    Text(isActive ? "Publik" : "Kapsul Waktu", style: TextStyle(fontSize: 12, color: isActive ? Colors.blue : Colors.grey)),
+                    Text(isActive ? "PUBLIK" : "KAPSUL WAKTU", style: TextStyle(fontSize: 10, letterSpacing: 1, fontWeight: FontWeight.bold, color: Colors.grey.shade700, fontFamily: 'Courier')),
                     const Spacer(),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: Colors.blue.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.brown.withOpacity(0.5)),
+                        borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
-                        journal['themeTag'] ?? 'Lainnya',
-                        style: const TextStyle(color: Colors.blue, fontSize: 10, fontWeight: FontWeight.bold),
+                        (journal['themeTag'] ?? 'LAINNYA').toString().toUpperCase(),
+                        style: const TextStyle(color: Colors.brown, fontSize: 9, fontWeight: FontWeight.bold, fontFamily: 'Courier', letterSpacing: 0.5),
                       ),
                     ),
                   ],
@@ -262,8 +761,8 @@ class _ProfileViewState extends State<ProfileView> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      locationName,
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      locationName.toUpperCase(),
+                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, letterSpacing: 0.5, fontFamily: fontFamily),
                     ),
                     if (!isActive)
                       Padding(
@@ -274,44 +773,83 @@ class _ProfileViewState extends State<ProfileView> {
                         ),
                       ),
                     const SizedBox(height: 8),
-                    Text(content, style: const TextStyle(fontSize: 14)),
+                    Text(content, style: TextStyle(fontSize: 14, fontFamily: fontFamily, color: Colors.black87)),
                     if (mediaList.isNotEmpty) ...[
                       const SizedBox(height: 12),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.network(
-                          'http://10.0.2.2:3000${mediaList[0]['url']}',
-                          height: 150,
-                          width: double.infinity,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(height: 150, color: Colors.grey.shade300, child: const Icon(Icons.broken_image)),
-                        ),
-                      )
-                    ],
-                    // Action Buttons
-                    const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        if (isActive) ...[
-                          TextButton.icon(
-                            onPressed: () {},
-                            icon: const Icon(Icons.edit, size: 16, color: Colors.blue),
-                            label: const Text("Edit", style: TextStyle(color: Colors.blue)),
+                      ColorFiltered(
+                        // Efek Sepia Tipis
+                        colorFilter: const ColorFilter.matrix([
+                          0.60, 0.30, 0.10, 0, 0,
+                          0.30, 0.50, 0.10, 0, 0,
+                          0.20, 0.20, 0.40, 0, 0,
+                          0,    0,    0,    1, 0,
+                        ]),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey.shade400, width: 1),
                           ),
-                          const SizedBox(width: 8),
-                          ElevatedButton.icon(
-                            onPressed: () {},
-                            icon: const Icon(Icons.chat_bubble_outline, size: 16),
-                            label: const Text("Balas"),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue,
-                              foregroundColor: Colors.white,
+                          child: Image.network(
+                            'http://10.0.2.2:3000${mediaList[0]['mediaUrl']}',
+                            height: 180,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              height: 180, 
+                              color: Colors.grey.shade300, 
+                              child: const Center(child: Icon(Icons.broken_image, color: Colors.grey)),
                             ),
                           ),
-                        ] else ...[
-                          const Text("Mode Baca Saja", style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
-                        ]
+                        ),
+                      ),
+                    ],
+                    // Action Buttons (Vintage Modern)
+                    const SizedBox(height: 16),
+                    const Divider(color: Colors.grey, thickness: 0.5),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // Reply Count
+                        Row(
+                          children: [
+                            const Icon(Icons.forum_outlined, size: 16, color: Colors.grey),
+                            const SizedBox(width: 4),
+                            Text(
+                              "$replyCount Balasan",
+                              style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Courier'),
+                            ),
+                          ],
+                        ),
+                        // Actions
+                        if (isActive)
+                          Row(
+                            children: [
+                              IconButton(
+                                onPressed: () => _archiveJournal(journal),
+                                icon: const Icon(Icons.archive_outlined, size: 20, color: Colors.brown),
+                                tooltip: "Arsipkan",
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                              ),
+                              const SizedBox(width: 16),
+                              IconButton(
+                                onPressed: () => _editJournal(journal),
+                                icon: const Icon(Icons.edit_outlined, size: 20, color: Colors.teal),
+                                tooltip: "Edit",
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                              ),
+                              const SizedBox(width: 16),
+                              IconButton(
+                                onPressed: () => _confirmDeleteJournal(journal),
+                                icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red),
+                                tooltip: "Hapus",
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                              ),
+                            ],
+                          )
+                        else
+                          const Text("READ ONLY", style: TextStyle(color: Colors.red, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1, fontFamily: 'Courier')),
                       ],
                     )
                   ],
@@ -319,6 +857,164 @@ class _ProfileViewState extends State<ProfileView> {
               )
             ],
           ),
+        ),
+      );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  void _showSettingsBottomSheet(BuildContext parentContext, UserModel user) {
+    showModalBottomSheet(
+      context: parentContext,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16.0),
+                child: Text("Pengaturan Profil", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ),
+              ListTile(
+                leading: const Icon(Icons.edit),
+                title: const Text("Edit Profil"),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showEditProfileDialog(parentContext, user);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.lock_outline),
+                title: const Text("Ganti Kata Sandi"),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showChangePasswordDialog(parentContext);
+                },
+              ),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.delete_forever, color: Colors.red),
+                title: const Text("Hapus Akun", style: TextStyle(color: Colors.red)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _confirmDeleteAccount(parentContext);
+                },
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showEditProfileDialog(BuildContext parentContext, UserModel user) {
+    final usernameController = TextEditingController(text: user.username);
+    final bioController = TextEditingController(text: user.bio ?? '');
+
+    showDialog(
+      context: parentContext,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Edit Profil"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: usernameController,
+                decoration: const InputDecoration(labelText: "Username"),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: bioController,
+                decoration: const InputDecoration(labelText: "Bio Singkat"),
+                maxLines: 3,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Batal")),
+            ElevatedButton(
+              onPressed: () {
+                parentContext.read<ProfileBloc>().add(ProfileUpdateRequested(
+                  username: usernameController.text,
+                  bio: bioController.text,
+                ));
+                Navigator.pop(context);
+              },
+              child: const Text("Simpan"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showChangePasswordDialog(BuildContext parentContext) {
+    final oldPasswordController = TextEditingController();
+    final newPasswordController = TextEditingController();
+
+    showDialog(
+      context: parentContext,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Ganti Kata Sandi"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: oldPasswordController,
+                decoration: const InputDecoration(labelText: "Kata Sandi Lama"),
+                obscureText: true,
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: newPasswordController,
+                decoration: const InputDecoration(labelText: "Kata Sandi Baru"),
+                obscureText: true,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Batal")),
+            ElevatedButton(
+              onPressed: () {
+                parentContext.read<ProfileBloc>().add(PasswordUpdateRequested(
+                  oldPassword: oldPasswordController.text,
+                  newPassword: newPasswordController.text,
+                ));
+                Navigator.pop(context);
+              },
+              child: const Text("Simpan"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _confirmDeleteAccount(BuildContext parentContext) {
+    showDialog(
+      context: parentContext,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Hapus Akun?"),
+          content: const Text("Anda yakin ingin menghapus akun? Profil Anda akan dianonimkan agar Jurnal dan Diskusi Anda tetap ada."),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Batal")),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () {
+                parentContext.read<ProfileBloc>().add(AccountDeleteRequested());
+                Navigator.pop(context);
+              },
+              child: const Text("Hapus", style: TextStyle(color: Colors.white)),
+            ),
+          ],
         );
       },
     );
@@ -333,12 +1029,33 @@ class _ProfileViewState extends State<ProfileView> {
         backgroundColor: Colors.white,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.black87),
+        actions: [
+          BlocBuilder<ProfileBloc, ProfileState>(
+            builder: (context, state) {
+              if (state is ProfileLoaded) {
+                return IconButton(
+                  icon: const Icon(Icons.settings),
+                  onPressed: () => _showSettingsBottomSheet(context, state.user),
+                );
+              }
+              return const SizedBox.shrink();
+            },
+          )
+        ],
       ),
       body: BlocConsumer<ProfileBloc, ProfileState>(
         listener: (context, state) {
           if (state is AvatarUpdateSuccess) {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.message), backgroundColor: Colors.green));
           } else if (state is AvatarUpdateFailed) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.error), backgroundColor: Colors.red));
+          } else if (state is ProfileActionSuccess) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.message), backgroundColor: Colors.green));
+            if (state.message.contains("dihapus")) {
+              context.read<AuthBloc>().add(LogoutRequested());
+              context.go('/login');
+            }
+          } else if (state is ProfileActionError) {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.error), backgroundColor: Colors.red));
           }
         },
@@ -413,8 +1130,16 @@ class _ProfileViewState extends State<ProfileView> {
                       children: [
                         _buildPersonalMap(stamps),
                         _buildStampsGrid(stamps),
-                        _buildMemoriesList(state.memories),
-                        _buildArchivesList(state.archives),
+                        _buildMemoriesList(
+                          state.memories,
+                          state.hasMoreMemories,
+                          () => context.read<ProfileBloc>().add(LoadMoreMemoriesRequested()),
+                        ),
+                        _buildArchivesList(
+                          state.archives,
+                          state.hasMoreArchives,
+                          () => context.read<ProfileBloc>().add(LoadMoreArchivesRequested()),
+                        ),
                       ],
                     ),
                   )

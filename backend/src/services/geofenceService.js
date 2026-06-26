@@ -57,7 +57,7 @@ const applyPublishSideEffects = async (userId, locationId) => {
   });
 
   // 3. Ubah status Bookmark menjadi VISITED (jika user pernah merencanakan ini)
-  await prisma.bookmark.updateMany({
+  await prisma.userBookmarkLocation.updateMany({
     where: { 
       userId: userId, 
       locationId: locationId, 

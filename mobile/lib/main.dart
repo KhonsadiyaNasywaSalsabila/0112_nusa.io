@@ -6,7 +6,9 @@ import 'blocs/auth/auth_bloc.dart';
 import 'blocs/sync/sync_bloc.dart';
 import 'blocs/sync/sync_event.dart';
 import 'blocs/journal/journal_interaction_bloc.dart';
+import 'blocs/bookmark/bookmark_interaction_bloc.dart';
 import 'repositories/journal_repository.dart';
+import 'repositories/bookmark_repository.dart';
 import 'routes/app_router.dart';
 
 // Deklarasi global agar bisa dipakai di app_router.dart
@@ -25,6 +27,7 @@ class MyApp extends StatelessWidget {
     return MultiRepositoryProvider(
       providers: [
         RepositoryProvider<JournalRepository>(create: (context) => JournalRepository()),
+        RepositoryProvider<BookmarkRepository>(create: (context) => BookmarkRepository()),
       ],
       child: MultiBlocProvider(
         providers: [
@@ -32,6 +35,11 @@ class MyApp extends StatelessWidget {
           BlocProvider<JournalInteractionBloc>(
             create: (context) => JournalInteractionBloc(
               repository: context.read<JournalRepository>()
+            ),
+          ),
+          BlocProvider<BookmarkInteractionBloc>(
+            create: (context) => BookmarkInteractionBloc(
+              repository: context.read<BookmarkRepository>()
             ),
           ),
           BlocProvider<SyncBloc>(

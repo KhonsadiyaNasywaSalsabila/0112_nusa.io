@@ -67,7 +67,8 @@ model User {
 
   // Relasi (Satu User bisa punya banyak Jurnal, Bookmark, dan Stempel)
   journals        Journal[]
-  bookmarks       Bookmark[]
+  bookmarkedLocations UserBookmarkLocation[]
+  savedJournals       UserSavedJournal[]
   stamps          UserStamp[]
 
   @@map("users") // Memaksa nama tabel fisik di MySQL menjadi 'users'
@@ -98,7 +99,7 @@ model Location {
 
   // Relasi
   journals       Journal[]
-  bookmarks      Bookmark[]
+  bookmarks      UserBookmarkLocation[]
   stamps         UserStamp[]
 
   @@map("locations")
@@ -143,7 +144,7 @@ model Journal {
 
   // Relasi ke tabel Media dan Bookmark
   media             JournalMedia[]
-  bookmarks         Bookmark[]
+  savedBy           UserSavedJournal[]
 
   @@map("journals")
 }
@@ -165,23 +166,31 @@ model JournalMedia {
   @@map("journal_media")
 }
 
-model Bookmark {
+model UserBookmarkLocation {
   id         String         @id @default(uuid()) @db.VarChar(36)
   locationId String         @map("location_id") @db.VarChar(36)
   userId     String         @map("user_id") @db.VarChar(36)
-  journalId  String         @map("journal_id") @db.VarChar(36)
   status     BookmarkStatus @default(PLANNED)
   createdAt  DateTime       @default(now()) @map("created_at")
 
   location   Location       @relation(fields: [locationId], references: [id], onDelete: Cascade)
   user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  journal    Journal        @relation(fields: [journalId], references: [id], onDelete: Cascade)
 
-  // [FIX Poin 3] Mencegah duplikasi bookmark akibat race condition
-  // (mis. double-tap tombol "Simpan Jejak"), sebagai lapis tambahan
-  // dari pengecekan findFirst() di bookmarkController.js
+  @@unique([userId, locationId])
+  @@map("user_bookmark_locations")
+}
+
+model UserSavedJournal {
+  id         String   @id @default(uuid()) @db.VarChar(36)
+  userId     String   @map("user_id") @db.VarChar(36)
+  journalId  String   @map("journal_id") @db.VarChar(36)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  journal    Journal  @relation(fields: [journalId], references: [id], onDelete: Cascade)
+
   @@unique([userId, journalId])
-  @@map("bookmarks")
+  @@map("user_saved_journals")
 }
 
 model UserStamp {

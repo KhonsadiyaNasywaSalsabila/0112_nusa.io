@@ -43,9 +43,9 @@ class PlaceHubBloc extends Bloc<PlaceHubEvent, PlaceHubState> {
 
         for (var jData in journalsData) {
           final j = JournalModel.fromJson(jData as Map<String, dynamic>);
-          if (j.rootJournalId == null) {
+          if (j.rootJournalId == null || j.rootJournalId!.isEmpty) {
             roots.add(j);
-            replies[j.id] = [];
+            replies.putIfAbsent(j.id, () => []);
           } else {
             if (replies.containsKey(j.rootJournalId)) {
               replies[j.rootJournalId]!.add(j);

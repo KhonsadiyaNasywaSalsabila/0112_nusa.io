@@ -11,13 +11,6 @@ class JournalInteractionInitial extends JournalInteractionState {}
 
 class JournalInteractionLoading extends JournalInteractionState {}
 
-class JournalBookmarkSuccess extends JournalInteractionState {
-  final String message;
-  const JournalBookmarkSuccess(this.message);
-
-  @override
-  List<Object> get props => [message];
-}
 
 class JournalArchiveSuccess extends JournalInteractionState {
   final String message;

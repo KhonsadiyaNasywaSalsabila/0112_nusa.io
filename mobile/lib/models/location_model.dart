@@ -7,12 +7,14 @@ class LocationModel {
   final double longitude;
   final double geofenceRadius;
   final String? coverPhotoUrl;
+  final String? description;
   final int journalCount;
   final bool isActive;
   
   // Fitur MapExplore
   final List<String> availableThemes;
   final bool isBookmarked;
+  final bool isVisited;
   final List<JournalModel> journals;
 
   LocationModel({
@@ -22,10 +24,12 @@ class LocationModel {
     required this.longitude,
     required this.geofenceRadius,
     this.coverPhotoUrl,
+    this.description,
     this.journalCount = 0,
     this.isActive = true,
     this.availableThemes = const [],
     this.isBookmarked = false,
+    this.isVisited = false,
     this.journals = const [],
   });
 
@@ -49,10 +53,12 @@ class LocationModel {
       longitude: double.tryParse(json['longitude']?.toString() ?? json['lng']?.toString() ?? '0') ?? 0.0,
       geofenceRadius: double.tryParse(json['geofenceRadius']?.toString() ?? '0') ?? 0.0,
       coverPhotoUrl: json['coverPhotoUrl'],
+      description: json['description'],
       journalCount: json['journalCount'] ?? 0,
       isActive: json['isActive'] ?? true,
       availableThemes: parsedThemes,
       isBookmarked: json['isBookmarked'] ?? false,
+      isVisited: json['isVisited'] ?? false,
       journals: parsedJournals,
     );
   }
@@ -65,10 +71,12 @@ class LocationModel {
       'longitude': longitude,
       'geofenceRadius': geofenceRadius,
       'coverPhotoUrl': coverPhotoUrl,
+      'description': description,
       'journalCount': journalCount,
       'isActive': isActive,
       'availableThemes': availableThemes,
       'isBookmarked': isBookmarked,
+      'isVisited': isVisited,
       'journals': journals.map((j) => j.toJson()).toList(),
     };
   }

@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 // 1. Import Controller Utama
-const { register, login, getProfile, updateAvatar } = require('../controllers/authController');
+const { register, login, getProfile, updateAvatar, updateProfile, updatePassword, deleteAccount } = require('../controllers/authController');
 
 // 2. Import Aturan Validasi dan Satpam Penindak (Fase Baru)
 const { registerValidation, loginValidation } = require('../middlewares/validators/authValidator');
@@ -27,5 +27,10 @@ router.get('/me', authenticateToken, getProfile);
 // Endpoint Update Avatar
 // Urutan: Cek Token -> Tangkap File 'avatar' -> Eksekusi Controller
 router.patch('/me/avatar', authenticateToken, upload.single('avatar'), updateAvatar);
+
+// Endpoint Update Profil, Password, dan Delete Account
+router.put('/me/profile', authenticateToken, updateProfile);
+router.put('/me/password', authenticateToken, updatePassword);
+router.delete('/me/account', authenticateToken, deleteAccount);
 
 module.exports = router;

@@ -135,5 +135,95 @@ const updateAvatar = async (req, res) => {
   }
 };
 
+// --- API UPDATE PROFILE ---
+const updateProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { username, bio } = req.body;
+
+    if (username) {
+      const existingUser = await prisma.user.findFirst({
+        where: { username, id: { not: userId } }
+      });
+      if (existingUser) {
+        return res.status(400).json({ success: false, message: "Username sudah digunakan!" });
+      }
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        username: username !== undefined ? username : undefined,
+        bio: bio !== undefined ? bio : undefined
+      },
+      select: { id: true, username: true, bio: true, profilePhotoUrl: true }
+    });
+
+    res.status(200).json({ success: true, message: "Profil berhasil diperbarui", data: updatedUser });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: "Gagal memperbarui profil" });
+  }
+};
+
+// --- API UPDATE PASSWORD ---
+const updatePassword = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { oldPassword, newPassword } = req.body;
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ success: false, message: "Akun tidak ditemukan!" });
+    }
+
+    const isMatch = await bcrypt.compare(oldPassword, user.passwordHash);
+    if (!isMatch) {
+      return res.status(401).json({ success: false, message: "Password lama salah!" });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: hashedPassword }
+    });
+
+    res.status(200).json({ success: true, message: "Password berhasil diperbarui!" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: "Gagal memperbarui password" });
+  }
+};
+
+// --- API DELETE ACCOUNT (SOFT DELETE) ---
+const deleteAccount = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Soft Delete: Anonymize user to keep journals and replies intact
+    const randomSuffix = Math.random().toString(36).substring(2, 8);
+    const anonymizedUsername = `[Pengguna Dihapus ${randomSuffix}]`;
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        username: anonymizedUsername,
+        email: `deleted_${userId}@nusa.io`, // Prevent email collision if they sign up again
+        passwordHash: "*", // Invalid hash
+        bio: "",
+        profilePhotoUrl: null,
+        accountStatus: "SUSPEND"
+      }
+    });
+
+    res.status(200).json({ success: true, message: "Akun berhasil dihapus. Sampai jumpa kembali!" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: "Gagal menghapus akun" });
+  }
+};
+
 // Ekspor fungsi baru
-module.exports = { register, login, getProfile, updateAvatar };
+module.exports = { register, login, getProfile, updateAvatar, updateProfile, updatePassword, deleteAccount };

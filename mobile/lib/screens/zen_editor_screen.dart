@@ -42,6 +42,7 @@ class _ZenEditorScreenState extends State<ZenEditorScreen> {
   
   Timer? _debounceTimer;
   int? _localDraftId;
+  final List<String> _existingNetworkImages = [];
 
   @override
   void initState() {
@@ -54,8 +55,21 @@ class _ZenEditorScreenState extends State<ZenEditorScreen> {
     if (widget.draftData != null) {
       _contentController.text = widget.draftData!['content'] ?? '';
       _selectedTheme = widget.draftData!['themeTag'];
-      if (widget.draftData!['id'] is int) {
-        _localDraftId = widget.draftData!['id'];
+      if (widget.draftData!['isLocal'] == 1 || widget.draftData!['isLocal'] == true) {
+        _localDraftId = int.tryParse(widget.draftData!['id'].toString());
+      }
+      
+      if (widget.draftData!['localMediaPaths'] != null && widget.draftData!['localMediaPaths'].toString().isNotEmpty) {
+        List<String> paths = widget.draftData!['localMediaPaths'].toString().split(',');
+        for (String path in paths) {
+          if (File(path).existsSync()) {
+            _selectedImages.add(File(path));
+          }
+        }
+      }
+
+      if (widget.draftData!['mediaUrls'] != null && widget.draftData!['mediaUrls'] is List) {
+        _existingNetworkImages.addAll(List<String>.from(widget.draftData!['mediaUrls']));
       }
     }
     
@@ -108,22 +122,6 @@ class _ZenEditorScreenState extends State<ZenEditorScreen> {
     }
   }
 
-  // --- Rumus Haversine ---
-  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    const R = 6371e3; // Radius bumi dalam meter
-    final phi1 = lat1 * math.pi / 180;
-    final phi2 = lat2 * math.pi / 180;
-    final deltaPhi = (lat2 - lat1) * math.pi / 180;
-    final deltaLambda = (lon2 - lon1) * math.pi / 180;
-
-    final a = math.sin(deltaPhi / 2) * math.sin(deltaPhi / 2) +
-        math.cos(phi1) * math.cos(phi2) *
-        math.sin(deltaLambda / 2) * math.sin(deltaLambda / 2);
-    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
-
-    return R * c; // Hasil dalam meter
-  }
-
   Future<void> _checkStatusAndLocation() async {
     // 1. Cek Koneksi (Online / Offline)
     final List<ConnectivityResult> connectivityResult = await (Connectivity().checkConnectivity());
@@ -132,52 +130,42 @@ class _ZenEditorScreenState extends State<ZenEditorScreen> {
       _isOnline = isOnline;
     });
 
-    // 2. Ambil GPS
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      _showErrorAndExit("GPS mati. Nyalakan GPS untuk menulis jurnal.");
+    if (widget.draftData == null || widget.draftData!['locationId'] == null) {
+      _showErrorAndExit("Data lokasi tidak ditemukan. Editor ditutup.");
       return;
     }
 
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        _showErrorAndExit("Izin GPS ditolak.");
-        return;
-      }
-    }
-
-    Position position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high));
-    _currentPosition = position;
-
-    // 3. Cek Haversine melawan Cache Lokal
+    // Bypass GPS karena verifikasi sudah dilakukan di layar sebelumnya
     final locations = await DatabaseHelper.instance.getLocationsCache();
     Map<String, dynamic>? matchedLoc;
-
     for (var loc in locations) {
-      double distance = _calculateDistance(
-        position.latitude, position.longitude,
-        loc['latitude'], loc['longitude']
-      );
-      double radius = loc['geofenceRadius'] ?? 50.0;
-
-      if (distance <= radius) {
+      if (loc['id'] == widget.draftData!['locationId']) {
         matchedLoc = loc;
-        break; // Ditemukan lokasi yang valid
+        break;
       }
     }
-
-    if (matchedLoc == null) {
-      _showErrorAndExit("Kamu berada di luar jangkauan (radius) tempat manapun yang terdaftar. Jurnal ditolak.");
-      return;
+    
+    if (matchedLoc != null) {
+      _currentPosition = Position(
+        longitude: double.tryParse(widget.draftData!['longitudeCaptured'].toString()) ?? matchedLoc['longitude'],
+        latitude: double.tryParse(widget.draftData!['latitudeCaptured'].toString()) ?? matchedLoc['latitude'],
+        timestamp: DateTime.now(),
+        accuracy: 0.0,
+        altitude: 0.0,
+        heading: 0.0,
+        speed: 0.0,
+        speedAccuracy: 0.0,
+        altitudeAccuracy: 0.0,
+        headingAccuracy: 0.0,
+        isMocked: widget.draftData!['isMocked'] == 1 || widget.draftData!['isMocked'] == true
+      );
+      setState(() {
+        _matchedLocation = matchedLoc;
+        _isLoading = false;
+      });
+    } else {
+      _showErrorAndExit("Lokasi tujuan tidak ditemukan di dalam cache lokal.");
     }
-
-    setState(() {
-      _matchedLocation = matchedLoc;
-      _isLoading = false;
-    });
   }
 
   void _showErrorAndExit(String message) {
@@ -185,7 +173,7 @@ class _ZenEditorScreenState extends State<ZenEditorScreen> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text("Akses Ditolak"),
+        title: const Text("Gagal Memuat"),
         content: Text(message),
         actions: [
           TextButton(
@@ -208,7 +196,8 @@ class _ZenEditorScreenState extends State<ZenEditorScreen> {
     final List<XFile>? images = await picker.pickMultiImage();
 
     if (images != null) {
-      if (images.length > 3) {
+      int totalCount = _selectedImages.length + _existingNetworkImages.length;
+      if (images.length + totalCount > 3) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Maksimal 3 foto pendamping. Sisa foto diabaikan.'))
@@ -217,7 +206,7 @@ class _ZenEditorScreenState extends State<ZenEditorScreen> {
 
       setState(() {
         for (int i = 0; i < images.length; i++) {
-          if (_selectedImages.length < 3) {
+          if (_selectedImages.length + _existingNetworkImages.length < 3) {
             _selectedImages.add(File(images[i].path));
           }
         }
@@ -262,7 +251,9 @@ class _ZenEditorScreenState extends State<ZenEditorScreen> {
           ));
         }
 
-        if (widget.draftData != null && !widget.draftData!['isLocal']) {
+        bool isLocal = widget.draftData != null ? (widget.draftData!['isLocal'] == 1 || widget.draftData!['isLocal'] == true) : false;
+
+        if (widget.draftData != null && widget.draftData!['id'] != null && !isLocal) {
           // Jika edit Draf Server
           final updateRes = await context.read<JournalRepository>().updateJournal(
             widget.draftData!['id'],
@@ -270,9 +261,24 @@ class _ZenEditorScreenState extends State<ZenEditorScreen> {
           );
 
           if (updateRes.statusCode == 200) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Draf berhasil diperbarui!')));
-              Navigator.pop(context, true); // pop dan kirim trigger refresh
+            if (publishNow && widget.draftData?['status'] != 'PUBLISHED') {
+              await context.read<JournalRepository>().publishJournal(widget.draftData!['id']);
+              if (_localDraftId != null) {
+                await DatabaseHelper.instance.deleteDraft(_localDraftId!);
+              }
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Jurnal diterbitkan & Stempel didapat!')));
+                Navigator.pop(context, true);
+              }
+            } else {
+              if (_localDraftId != null) {
+                await DatabaseHelper.instance.deleteDraft(_localDraftId!);
+              }
+              if (mounted) {
+                String msg = widget.draftData?['status'] == 'PUBLISHED' ? 'Jurnal berhasil diperbarui!' : 'Draf berhasil diperbarui!';
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+                Navigator.pop(context, true);
+              }
             }
           }
         } else {
@@ -284,11 +290,17 @@ class _ZenEditorScreenState extends State<ZenEditorScreen> {
 
             if (publishNow) {
               await context.read<JournalRepository>().publishJournal(newJournalId);
+              if (_localDraftId != null) {
+                await DatabaseHelper.instance.deleteDraft(_localDraftId!);
+              }
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Jurnal diterbitkan & Stempel didapat!')));
                 Navigator.pop(context, true);
               }
             } else {
+              if (_localDraftId != null) {
+                await DatabaseHelper.instance.deleteDraft(_localDraftId!);
+              }
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tersimpan sebagai Draf di Server!')));
                 Navigator.pop(context, true);
@@ -353,7 +365,7 @@ class _ZenEditorScreenState extends State<ZenEditorScreen> {
           ]
         ),
         clipBehavior: Clip.hardEdge,
-        child: _selectedImages.isEmpty
+        child: _selectedImages.isEmpty && _existingNetworkImages.isEmpty
             ? _buildEmptyMediaSlot()
             : _buildFilledMediaGrid(),
       ),
@@ -379,28 +391,95 @@ class _ZenEditorScreenState extends State<ZenEditorScreen> {
   }
 
   Widget _buildFilledMediaGrid() {
-    if (_selectedImages.length == 1) {
-      return Image.file(_selectedImages[0], height: 240, width: double.infinity, fit: BoxFit.cover);
-    } else if (_selectedImages.length == 2) {
-      return Row(
-        children: [
-          Expanded(child: Image.file(_selectedImages[0], height: 200, fit: BoxFit.cover)),
-          const SizedBox(width: 2),
-          Expanded(child: Image.file(_selectedImages[1], height: 200, fit: BoxFit.cover)),
-        ],
+    List<Widget> imageWidgets = [];
+
+    for (String url in _existingNetworkImages) {
+      imageWidgets.add(
+        Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.network(
+              url.startsWith('http') ? url : "http://10.0.2.2:3000${url.startsWith('/') ? '' : '/'}$url", 
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) => Container(
+                color: Colors.grey[800],
+                child: const Icon(Icons.broken_image, color: Colors.white54),
+              ),
+            ),
+            Positioned(
+              top: 4, right: 4,
+              child: GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _existingNetworkImages.remove(url);
+                  });
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle),
+                  child: const Icon(Icons.close, size: 16, color: Colors.white),
+                ),
+              ),
+            )
+          ]
+        )
+      );
+    }
+
+    for (int i = 0; i < _selectedImages.length; i++) {
+      File file = _selectedImages[i];
+      imageWidgets.add(
+        Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.file(file, fit: BoxFit.cover),
+            Positioned(
+              top: 4, right: 4,
+              child: GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _selectedImages.removeAt(i);
+                  });
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle),
+                  child: const Icon(Icons.close, size: 16, color: Colors.white),
+                ),
+              ),
+            )
+          ]
+        )
+      );
+    }
+
+    if (imageWidgets.length == 1) {
+      return SizedBox(height: 240, width: double.infinity, child: imageWidgets[0]);
+    } else if (imageWidgets.length == 2) {
+      return SizedBox(
+        height: 200,
+        child: Row(
+          children: [
+            Expanded(child: imageWidgets[0]),
+            const SizedBox(width: 2),
+            Expanded(child: imageWidgets[1]),
+          ],
+        ),
       );
     } else {
-      // 3 images (Apple Journal Style: 1 besar, 2 kecil)
       return Column(
         children: [
-          Image.file(_selectedImages[0], height: 180, width: double.infinity, fit: BoxFit.cover),
+          SizedBox(height: 180, width: double.infinity, child: imageWidgets[0]),
           const SizedBox(height: 2),
-          Row(
-            children: [
-              Expanded(child: Image.file(_selectedImages[1], height: 120, fit: BoxFit.cover)),
-              const SizedBox(width: 2),
-              Expanded(child: Image.file(_selectedImages[2], height: 120, fit: BoxFit.cover)),
-            ],
+          SizedBox(
+            height: 120,
+            child: Row(
+              children: [
+                Expanded(child: imageWidgets[1]),
+                const SizedBox(width: 2),
+                Expanded(child: imageWidgets.length > 2 ? imageWidgets[2] : Container(color: Colors.grey[200])),
+              ],
+            ),
           )
         ],
       );
@@ -459,23 +538,37 @@ class _ZenEditorScreenState extends State<ZenEditorScreen> {
                         size: 16,
                       ),
                       const SizedBox(width: 8),
-                      const Expanded(
-                        child: Text("Jurnal", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+                      Expanded(
+                        child: Row(
+                          children: [
+                            const Text("Zen Editor", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                            const Spacer(),
+                            if (_isLoading)
+                              const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                            if (_isOnline) ...[
+                              if (widget.draftData?['status'] == 'PUBLISHED')
+                                TextButton(
+                                  onPressed: () => _submitJournal(publishNow: false),
+                                  child: const Text("Perbarui", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                                )
+                              else ...[
+                                TextButton(
+                                  onPressed: () => _submitJournal(publishNow: false),
+                                  child: const Text("Simpan Draf", style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold)),
+                                ),
+                                TextButton(
+                                  onPressed: () => _submitJournal(publishNow: true),
+                                  child: const Text("Terbitkan", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                                ),
+                              ],
+                            ] else
+                              TextButton(
+                                onPressed: () => _submitJournal(publishNow: false),
+                                child: const Text("Simpan ke Saku", style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold)),
+                              ),
+                          ],
+                        ),
                       ),
-                      if (_isOnline) ...[
-                        TextButton(
-                          onPressed: () => _submitJournal(publishNow: false),
-                          child: const Text("Simpan Draf", style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold)),
-                        ),
-                        TextButton(
-                          onPressed: () => _submitJournal(publishNow: true),
-                          child: const Text("Terbitkan", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-                        ),
-                      ] else
-                        TextButton(
-                          onPressed: () => _submitJournal(publishNow: false),
-                          child: const Text("Simpan ke Saku", style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold)),
-                        ),
                     ],
                   ),
                 ),
